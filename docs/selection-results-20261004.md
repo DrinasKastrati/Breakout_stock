@@ -10,6 +10,8 @@ Ofiltrerat momentum gav −41,62 % totalt, DD 64,29 % och −45,12 % vid 30 bps 
 
 **Momentumresultatet är preliminärt på grund av dataluckor:** 827 innehavsdagar saknade kursbar, 40 försök att sälja vid månadsöppning saknade öppningsbar och 38 nya köp blockerades av låsta innehav. 827 är summan av saknade observationer för innehav, inte 827 distinkta börsdagar. Senaste kända markering behölls och innehaven upptog platser tills handel kunde simuleras. Det påverkar värdering, försäljning och kommande köp; resultatet ska inte behandlas som en fullt kvalitetssäkrad rekonstruktion av verklig handel. Breakout hade noll saknade innehavsdagar i denna körning.
 
+I de fem separata årskontona och kontot för senaste två år fanns noll saknade innehavsdagar. Senaste två år gav momentum −7,69 % med DD 56,10 %, mot breakouts −7,28 % med DD 11,83 %. Även denna delkontojämförelse visar inget bättre utfall för momentum, men överlevnadsbias, bolagshändelser och olika risk-/exponeringsregler kvarstår.
+
 Momentum hade 97,09 % genomsnittlig exponering mot 30,42 % för breakout, och saknade dagliga stoppar. Det är därför inte ett isolerat test av rankingregeln. 35,89 % av momentums avslutade affärer var vinnare; PF var 0,66. Dessa är modellens utfall, inte ett kausalt bevis för varför strategin förlorade.
 
 Datasetets SHA256 är identiskt med föregående koncentrerade studie: jämförelsen med dess cap10_base återskapar samma −9,77 %. Skillnaderna här kommer därför inte från att olika prisdataset hämtats. Nästa giltiga steg är att lösa kurs-/instrumentluckorna och tillföra granskade historiska börsvärden, med framtida orörd validering. Inga parametrar ändrades efter att resultaten sågs och ingen variant infördes i dashboard eller handel.
