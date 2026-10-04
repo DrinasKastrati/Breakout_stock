@@ -16,13 +16,16 @@
 - Misslyckad och ofullständig datainhämtning behåller föregående bygge. Oförändrad analys publiceras inte igen; tvingad hämtning kontrollerar data på nytt.
 - Fria SIP-anrop får uttryckligt `end` minst 16 minuter gammalt. Request pacing verifieras under Basics 200/minut.
 - Demowebbplatsen har byggts två gånger: första körningen skapar ett snapshot, andra rapporterar `changed: false`.
-- Arbetsflödesfilerna har parsats som YAML. Pages-publicering är avstängd tills repot är publikt och `ENABLE_PAGES=true` har angetts på GitHub.
+- Arbetsflödesfilerna har parsats som YAML.
+- 2026-10-04: repot gjordes publikt, Pages-källan sattes till GitHub Actions och `ENABLE_PAGES=true` sparades via GitHub-hemsidan. Inga datahemligheter finns ännu; automatisk marknadsuppdatering är avstängd.
+- Första demopubliceringen lyckades, inklusive 43 tester och keepalive-jobbet: [Pages-körning](https://github.com/DrinasKastrati/Breakout_stock/actions/runs/37167782403). [Publicerad dashboard](https://drinaskastrati.github.io/Breakout_stock/).
+- Desktopkontroll i Chrome på den publicerade sidan: kandidatlistan laddas, sökning filtrerar på bolagsnamn, aktiebyte uppdaterar candles/volym/MACD och signalvillkor, och de tre förberäknade backtestvarianterna visas. Skärmbild har granskats; inga konsolfel rapporterades.
 
 ## Ej verifierat
 
 - Riktiga Alpaca-anrop: användarens Basic-nycklar saknas i miljön. HTTP-paginering och datakontrakt testas med stubbar.
-- Pages-deployment och det återkommande schemat: kräver användarens godkända repo-synlighet, Pages-inställningar och secrets.
-- Visuell rendering i webbläsare: Playwright finns, men browser-binären saknas. Ingen skärmbild eller visuell QA har därför genomförts.
+- Det återkommande schemat och publicering med riktiga Alpaca-data: kräver användarens datahemligheter och `ENABLE_AUTO_UPDATE=true`.
+- Mobil rendering, upplåsning av riktiga data i Chrome och CSV-nedladdning på den publicerade sidan. Ett försök att observera CSV-nedladdningen gav timeout i webbläsarverktyget; ingen lyckad nedladdning har bekräftats.
 - Fullt amerikanskt universum, verklig likviditet, historiskt instrumentregister och strategins marknadsresultat.
 
 Gränssnittets primära manuella kontroll är desktop + mobil: läs scanning, välj kandidat, granska OHLC/MACD, filtrera listan och kontrollera provenance. På Pages: lås upp, exportera CSV, öppna GitHub-inställningslänken och visa senaste jämförelse. Lokalt: spara risknivå och kör ett eget testintervall. Tester av API är inte ett substitut för visuell kontroll.
