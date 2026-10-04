@@ -2,7 +2,7 @@ from dataclasses import replace
 import unittest
 
 from breakout_lab.models import Bar, Config
-from breakout_lab.portfolio import simulate_portfolio, benchmark, discover_signals
+from breakout_lab.portfolio import simulate_portfolio, benchmark, discover_signals, phase_attribution, attribution_names
 
 
 def signal(symbol, day="2024-01-01", stop=9, volume=2):
@@ -171,6 +171,41 @@ class PortfolioExecution(unittest.TestCase):
         self.assertEqual(r["stats"]["skipped"]["entry_gap"], 1)
         self.assertEqual(r["open_positions"][0]["symbol"], "B")
         self.assertEqual(r["open_positions"][0]["shares"], 100)
+
+
+class AttributionTests(unittest.TestCase):
+    def test_trade_spanning_peak_and_trough_uses_endpoint_marks(self):
+        histories = {"A": [bar("2024-01-01", high=15, close=15),
+                           bar("2024-01-02", low=6, close=6),
+                           bar("2024-01-03", high=12, close=12)]}
+        result = {"stats": {"initial_usd": 100},
+                  "equity_curve": [{"date": "2024-01-01", "equity_usd": 149},
+                                   {"date": "2024-01-02", "equity_usd": 59},
+                                   {"date": "2024-01-03", "equity_usd": 118}],
+                  "trades": [{"symbol": "A", "entry_date": "2024-01-01", "entry": 10,
+                              "shares": 10, "entry_fee": 1, "exit_date": "2024-01-03", "pnl_usd": 18}],
+                  "open_positions": []}
+        a = phase_attribution(result, histories)
+        self.assertEqual(a["decline"]["contributors"], [{"symbol": "A", "change_usd": -90}])
+        self.assertEqual(a["recovery"]["contributors"], [{"symbol": "A", "change_usd": 59}])
+        public = attribution_names(a)
+        self.assertEqual(public["decline"]["symbols_by_contribution"], ["A"])
+        self.assertNotIn("contributors", public["decline"])
+
+    def test_new_trade_costs_and_terminal_open_position_are_in_recovery(self):
+        histories = {"A": [bar("2024-01-01", close=10), bar("2024-01-02", low=5, close=5)],
+                     "B": [bar("2024-01-03", high=12, close=12)]}
+        result = {"stats": {"initial_usd": 100},
+                  "equity_curve": [{"date": "2024-01-01", "equity_usd": 100},
+                                   {"date": "2024-01-02", "equity_usd": 50},
+                                   {"date": "2024-01-03", "equity_usd": 59}],
+                  "trades": [{"symbol": "A", "entry_date": "2024-01-01", "entry": 10,
+                              "shares": 10, "entry_fee": 0, "exit_date": "2024-01-02", "pnl_usd": -50}],
+                  "open_positions": [{"symbol": "B", "entry_date": "2024-01-03", "entry": 10,
+                                      "shares": 5, "entry_fee": 1}]}
+        a = phase_attribution(result, histories)
+        self.assertEqual(a["recovery"]["contributors"], [{"symbol": "B", "change_usd": 9}])
+        self.assertEqual(attribution_names(a)["recovery"]["symbols_by_contribution"], ["B"])
 
 
 if __name__ == "__main__":
