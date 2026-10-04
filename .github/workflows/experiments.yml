@@ -5,7 +5,7 @@ on:
       years:
         description: Years of daily data to compare
         type: choice
-        options: ['2', '3']
+        options: ['2']
         default: '2'
       capital:
         description: Starting simulated capital in USD
