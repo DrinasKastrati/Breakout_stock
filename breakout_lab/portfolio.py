@@ -236,6 +236,66 @@ def report(assets, histories, metadata, config, start, end, allocation="risk_bud
     return result
 
 
+def phase_attribution(result, histories):
+    """Account P/L by symbol between the worst drawdown's endpoints and after it.
+
+    Include mark-to-market changes in positions spanning an endpoint, rather
+    than attributing an entire trade's P/L to the day it closed.
+    """
+    curve, initial = result["equity_curve"], result["stats"]["initial_usd"]
+    before = (date.fromisoformat(curve[0]["date"]) - timedelta(days=1)).isoformat()
+    values = {r["date"]: r["equity_usd"] for r in curve}
+    values[before] = initial
+    peak_day, peak_value, worst = before, initial, 0.0
+    decline_start = decline_end = before
+    for row in curve:
+        if row["equity_usd"] > peak_value:
+            peak_day, peak_value = row["date"], row["equity_usd"]
+        dd = 1 - row["equity_usd"] / peak_value if peak_value else 0.0
+        if dd > worst:
+            worst = dd
+            decline_start, decline_end = peak_day, row["date"]
+    positions = result["trades"] + result["open_positions"]
+
+    def pnl_at(p, day):
+        if day < p["entry_date"]:
+            return 0.0
+        if p.get("exit_date", "9999-12-31") <= day:
+            return p["pnl_usd"]
+        bars = [b for b in histories[p["symbol"]] if p["entry_date"] <= b.date <= day]
+        if not bars:
+            raise ValueError("Missing entry/mark data for attribution")
+        mark = max(bars, key=lambda b: b.date).close
+        return p["shares"] * (mark - p["entry"]) - p["entry_fee"]
+
+    def phase(start, end):
+        changes = Counter()
+        for p in positions:
+            changes[p["symbol"]] += pnl_at(p, end) - pnl_at(p, start)
+        expected = values[end] - values[start]
+        if not math.isclose(sum(changes.values()), expected, abs_tol=1e-5):
+            raise AssertionError("Symbol attribution does not reconcile to account equity")
+        return {"start": start, "end": end, "start_usd": values[start], "end_usd": values[end],
+                "change_usd": expected,
+                "contributors": [{"symbol": s, "change_usd": amount}
+                                 for s, amount in sorted(changes.items()) if abs(amount) > 1e-8]}
+
+    return {"decline": phase(decline_start, decline_end),
+            "recovery": phase(decline_end, curve[-1]["date"])}
+
+
+def attribution_names(attribution):
+    """Publish research contributor names; keep symbol-level prices/P&L encrypted."""
+    out = {}
+    for phase, descending in (("decline", False), ("recovery", True)):
+        data = attribution[phase]
+        ranked = sorted(data["contributors"], key=lambda r: (r["change_usd"] * (-1 if descending else 1), r["symbol"]))
+        ranked = [r for r in ranked if (r["change_usd"] > 0 if descending else r["change_usd"] < 0)]
+        out[phase] = {k: data[k] for k in ("start", "end", "start_usd", "end_usd", "change_usd")}
+        out[phase]["symbols_by_contribution"] = [r["symbol"] for r in ranked[:5]]
+    return out
+
+
 def markdown(result):
     s, b, c = result["stats"], result["benchmark"], result["config"]
     pct = lambda v: f"{100 * v:.2f}%" if v is not None else "n/a"
@@ -281,6 +341,14 @@ def markdown(result):
                 f"| Avkastning | {pct(base['return'])} | {pct(s['return'])} |",
                 f"| Största nedgång | {pct(base['max_drawdown'])} | {pct(s['max_drawdown'])} |",
                 f"| Stängda affärer | {base['closed_trades']} | {s['closed_trades']} |"]
+    if "attribution_names" in result:
+        out += ["", "## Aktier bakom nedgång och återhämtning", "",
+                "Namnen nedan är rangordnade efter respektive akties bidrag till det simulerade kontots förändring. Öppna innehav markeras vid periodgränserna. Enskilda kurser, affärer och belopp per aktie finns endast i den krypterade rapporten.", "",
+                "| Fas | Period | Kontovärde USD | Största negativa/positiva bidrag, ticker |",
+                "| --- | --- | ---: | --- |"]
+        for key, label in (("decline", "Största nedgång"), ("recovery", "Efter botten till testslut")):
+            a = result["attribution_names"][key]
+            out.append(f"| {label} | {a['start']} – {a['end']} | {a['start_usd']:,.2f} → {a['end_usd']:,.2f} | {', '.join(a['symbols_by_contribution']) or 'Inga'} |")
     out += ["", "## Begränsningar", ""] + [f"- {v}" for v in result["limitations"]]
     out += ["", "Resultatet gäller denna regeluppsättning och datamängd. Överlevnadsbias innebär att det inte är ett historiskt komplett börstest.", ""]
     return "\n".join(out)
@@ -313,10 +381,12 @@ def main():
     if args.allocation == "all_in":
         baseline = report(assets, histories, metadata, config, start_day.isoformat(), end_day.isoformat())
         result["comparison_baseline"] = {"stats": baseline["stats"], "equity_curve": baseline["equity_curve"]}
+        result["phase_attribution"] = phase_attribution(result, histories)
+        result["attribution_names"] = attribution_names(result["phase_attribution"])
     output = Path(args.output)
     output.mkdir(parents=True, exist_ok=True)
-    # Only aggregated simulated-account statistics are public. Individual
-    # fills, instruments and data remain in an authenticated encrypted file.
+    # Aggregated account statistics and leading contributor names are public.
+    # Individual fills, symbol-level P/L and market data remain encrypted.
     nonce = os.urandom(12)
     encrypted = AESGCM(key).encrypt(nonce, json_bytes(result), b"portfolio-report-v1")
     envelope = {"schema": 1, "aad": "portfolio-report-v1", "iterations": ITERATIONS,
@@ -327,6 +397,8 @@ def main():
                                       "assets_with_warmup_at_start", "scope", "config", "limitations", "equity_curve")}
     if "comparison_baseline" in result:
         public["comparison_baseline"] = result["comparison_baseline"]
+    if "attribution_names" in result:
+        public["attribution_names"] = result["attribution_names"]
     (output / "summary.json").write_bytes(json_bytes(public))
     md = markdown(result)
     (output / "report.md").write_text(md, encoding="utf-8")
