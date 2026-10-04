@@ -146,6 +146,24 @@ Nuvarande bolagsmetadata får inte användas i historiska tester som om den vari
 
 ## Utveckling
 
+### Portföljtest med gemensamt kapital
+
+Välj **Actions → Portfolio backtest → Run workflow** på GitHub. Standardvalen är två års test och 100 000 USD. Samma tre Secrets som för dashboarden används. Körningen hämtar ett extra år före testperioden för indikatorernas uppvärmning och använder hela det upptäckta nuvarande universumet.
+
+Detta separata test har en gemensam kontantbudget, hela aktier, återinvestering, 0,5 % riskbudget och högst 15 % av aktuellt eget kapital per position. Ingen belåning används. Köp sker vid nästa sessions öppning efter breakout + volym + MACD. Befintliga exits används: stop under basen, 2R-mål eller efter 20 candles. **En separat MACD-säljsignal finns inte.** När flera signaler konkurrerar rangordnas de med föregående stängnings poäng, relativ volym, lägst ATR-extension och ticker.
+
+Öppningsgap kan frigöra kapital före nya öppningsköp. Intradagsförsäljningar kan inte finansiera samma dags tidigare öppningsköp. Likviddagar modelleras inte; återanvändning av försäljningslikvid samma dag förutsätts. Öppna slutpositioner markeras till senaste stängning. Resultatet inkluderar 10 baspunkters slippage per sida och 0,005 USD per aktie i courtage per sida. Utdelningar, ränta, skatt och växelkurs ingår inte. SPY jämförs som kursavkastning utan utdelningar.
+
+Rapporten visas i körningens sammanfattning. Artefakten `portfolio-report` innehåller aggregerad rapport och kontokurva, samt en fil med individuella affärer krypterad med din `DASHBOARD_PASSPHRASE`. Artefakten sparas en dag; körningens sammanfattning finns kvar. Pages-flikens tidigare test visar fortfarande oberoende affärer för senaste året.
+
+Testet använder nu aktiva bolag och namnheuristik för instrumenttyp, vilket ger överlevnadsbias. Det är därför inte ett historiskt komplett börsuniversum eller ett orört test av en på förhand bevisad strategi.
+
+Lokalt med samma miljövariabler och fria krypteringspaket:
+
+```bash
+python -m breakout_lab.portfolio --years 2 --capital 100000
+```
+
 ```bash
 python -m unittest discover -s tests -v
 ```
