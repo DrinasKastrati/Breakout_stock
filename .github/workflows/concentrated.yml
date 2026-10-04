@@ -1,0 +1,43 @@
+name: Capped portfolio research (5, 6, 10 holdings)
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/concentrated.yml'
+      - 'breakout_lab/concentrated.py'
+  workflow_dispatch:
+    inputs:
+      capital:
+        description: Starting simulated capital in USD
+        type: string
+        default: '100000'
+permissions:
+  contents: read
+concurrency:
+  group: portfolio-research
+  cancel-in-progress: false
+jobs:
+  research:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements-pages.txt
+      - run: python -m unittest discover -s tests -v
+      - name: Compare 18 predefined capped portfolios on adjusted data
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
+          DASHBOARD_PASSPHRASE: ${{ secrets.DASHBOARD_PASSPHRASE }}
+          TEST_CAPITAL: ${{ inputs.capital || '100000' }}
+        run: python -m breakout_lab.concentrated --capital "$TEST_CAPITAL"
+      - name: Upload aggregate results and encrypted personal audit
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: capped-portfolio-report
+          path: dist/concentrated
+          retention-days: 7

@@ -85,7 +85,7 @@ def filter_universe(assets, records, exclusions=()):
     return sorted(selected, key=lambda a: a.symbol), dict(reasons)
 
 
-def download_dataset(config, years=5):
+def download_dataset(config, years=5, *, adjustment="split"):
     from .providers import Alpaca
     provider = Alpaca("sip")
     now = datetime.now(timezone.utc)
@@ -100,9 +100,9 @@ def download_dataset(config, years=5):
     histories = {}
     symbols = [a.symbol for a in assets] + ["SPY"]
     for offset in range(0, len(symbols), 100):
-        histories.update(provider.bars(symbols[offset:offset+100], first, end, now))
+        histories.update(provider.bars(symbols[offset:offset+100], first, end, now, adjustment=adjustment))
         print(f"RESEARCH_STAGE=Downloaded {min(offset+100,len(symbols))}/{len(symbols)} histories", flush=True)
-    metadata = {"source": "alpaca", "feed": "sip", "adjustment": "split", "as_of": end,
+    metadata = {"source": "alpaca", "feed": "sip", "adjustment": adjustment, "as_of": end,
                 "synced_at": now.isoformat(), "synthetic": False, "bar_definition": "provider_1Day",
                 "official_directory_stamps": stamps, "universe_exclusion_counts": reasons,
                 "universe_policy": "Current Nasdaq ETF=N and Test Issue=N, explicit common/ordinary/capital stock; excludes other instrument words."}
@@ -354,7 +354,7 @@ def run_study(assets, histories, metadata, config, start, end, definitions=None)
             "variants":results,"walk_forward":walk_forward(results),
             "limitations":["Current active universe and current security-type directory: historical delisted securities absent; survivorship bias remains.",
                 "WOLF and RNA quarantined; no complete corporate-action/security-identity ledger. Other discontinuities remain possible.",
-                "Split-adjusted daily OHLC; no dividends, tax, cash interest, FX or settlement restrictions.",
+                f"Daily OHLC adjustment={metadata.get('adjustment', 'split')}; no cash dividends, tax, cash interest, FX or settlement restrictions.",
                 "Study definitions fixed before this run, but prior exploration already inspected these dates. No genuinely untouched validation period.",
                 "Reset-year/training/recent accounts start from 100k with no inherited holdings; their returns do not recreate the full continuous portfolio.",
                 "Portfolio risk is a modeled distance to stops at entry checks, not a guaranteed loss cap; gaps can exceed it and risk can grow between entries.",
@@ -367,7 +367,7 @@ def run_study(assets, histories, metadata, config, start, end, definitions=None)
 def public_summary(result, include_curves=True):
     def aggregate(r):
         return {k:r[k] for k in ("start","end","allocation","stats","equity_curve") if include_curves or k!="equity_curve"}
-    public = {k:v for k,v in result.items() if k!="variants"}
+    public = {k:v for k,v in result.items() if k not in ("variants", "private_data_audit")}
     public["variants"] = [{**{k:v for k,v in row.items() if k not in ("periods","stress")},
                           "periods":{n:aggregate(p) for n,p in row["periods"].items()},
                           "stress":aggregate(row["stress"])} for row in result["variants"]]
@@ -422,7 +422,7 @@ def markdown(result):
     return "\n".join(out)+"\n"
 
 
-def save(result, output, passphrase):
+def save(result, output, passphrase, *, report_renderer=markdown):
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
     from .pages import derive_key, json_bytes, ITERATIONS
     salt,nonce=os.urandom(16),os.urandom(12)
@@ -433,7 +433,7 @@ def save(result, output, passphrase):
     output=Path(output);output.mkdir(parents=True,exist_ok=True)
     (output/"personal-report.encrypted.json").write_bytes(json_bytes(envelope))
     (output/"summary.json").write_bytes(json_bytes(public_summary(result)))
-    md=markdown(result)
+    md=report_renderer(result)
     (output/"report.md").write_text(md,encoding="utf-8")
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         # Keep the web summary concise; full exact manifest remains in the artifact.

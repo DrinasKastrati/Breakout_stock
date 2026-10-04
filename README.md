@@ -146,6 +146,10 @@ Nuvarande bolagsmetadata får inte användas i historiska tester som om den vari
 
 ## Utveckling
 
+### Ny jämförelse med högst 10 innehav
+
+Kör **Actions → Capped portfolio research (5, 6, 10 holdings)** för 18 fördefinierade femårsjämförelser med tak på 5, 6 eller 10 samtidiga innehav, marknadsfilter och gemensamma riskgränser. Denna serie använder split- och avknoppningsjusterade forskningspriser samt separat instrumenthistorik för nya Biohaven. Se [protokollet](docs/concentrated-protocol-20261004.md) för exakta regler och kvarvarande begränsningar. Alla varianter begränsas till högst 10 innehav; gamla rapporter och den tidigare 36-variantserien bevaras. Körningen skickar inga order och ändrar inte dashboardens strategi.
+
 ### Portföljtest med gemensamt kapital
 
 Workflowens val `allocation=all_in` investerar hela tillgängliga kapitalet i en aktie åt gången, utan belåning. Hela aktier avrundas nedåt och courtage reserveras. Nya signaler ignoreras medan positionen är öppen. Breakoutregler, rangordning och exits är desamma, medan riskbudgeten på 0,5 % och positionsgränsen på 15 % inte används för storleken. Samma körning räknar om standardläget på exakt samma hämtade data för jämförelse. Lokalt: `python -m breakout_lab.portfolio --years 2 --capital 100000 --allocation all_in`.

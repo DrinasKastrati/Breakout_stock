@@ -129,7 +129,10 @@ class Alpaca:
             assets.append(Asset(row["symbol"], name, row["exchange"], kind, classification="heuristic"))
         return assets
 
-    def bars(self, symbols, start, as_of, now=None):
+    def bars(self, symbols, start, as_of, now=None, *, adjustment="split"):
+        # Research may normalize spin-offs as well; existing callers retain splits only.
+        if adjustment not in ("raw", "split", "split,spin-off"):
+            raise ValueError("Unsupported bar adjustment")
         now = now or datetime.now(timezone.utc)
         # Basic permits historical SIP when end is at least 15 minutes old.
         # Never send a future midnight or use the paid latest/snapshot endpoints.
@@ -142,7 +145,7 @@ class Alpaca:
             while True:
                 params = {"symbols": ",".join(chunk), "timeframe": "1Day", "start": start,
                           "end": end,
-                          "adjustment": "split", "feed": self.feed, "limit": 10000, "sort": "asc"}
+                          "adjustment": adjustment, "feed": self.feed, "limit": 10000, "sort": "asc"}
                 if token:
                     params["page_token"] = token
                 page = self.get("https://data.alpaca.markets", "/v2/stocks/bars", params)
