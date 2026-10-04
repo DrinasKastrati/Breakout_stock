@@ -125,6 +125,53 @@ class PortfolioExecution(unittest.TestCase):
         with self.assertRaises(ValueError):
             discover_signals([], {}, replace(self.config, min_market_cap=1), *self.days[::2])
 
+    def test_all_in_uses_full_cash_instead_of_risk_and_position_caps(self):
+        config = replace(self.config, risk_fraction=.005, max_position_fraction=.15)
+        r = simulate_portfolio({"A": [bar(d) for d in self.days]},
+                               {self.days[0]: [signal("A")]}, config,
+                               self.days[0], self.days[-1], self.days, "all_in")
+        self.assertEqual(r["open_positions"][0]["shares"], 100)
+        self.assertEqual(r["stats"]["cash_usd"], 0)
+        self.assertEqual(r["stats"]["max_positions"], 1)
+
+    def test_all_in_ranking_and_one_position_even_with_cash_left(self):
+        histories = {"A": [bar(d, opening=600, high=601, low=599, close=600) for d in self.days],
+                     "B": [bar(d) for d in self.days]}
+        a = dict(signal("A", stop=590, volume=3), resistance=600, atr=20)
+        r = simulate_portfolio(histories, {self.days[0]: [signal("B"), a]}, self.config,
+                               self.days[0], self.days[-1], self.days, "all_in")
+        self.assertEqual([p["symbol"] for p in r["open_positions"]], ["A"])
+        self.assertEqual(r["stats"]["cash_usd"], 400)
+        self.assertEqual(r["stats"]["skipped"]["portfolio_occupied"], 1)
+
+    def test_all_in_reinvests_net_proceeds_after_exit(self):
+        histories = {"A": [bar(self.days[1], high=11.5, close=11)],
+                     "B": [bar(self.days[2])]}
+        config = replace(self.config, max_holding_bars=1)
+        signals = {self.days[0]: [signal("A")], self.days[1]: [signal("B", self.days[1])]}
+        r = simulate_portfolio(histories, signals, config,
+                               self.days[0], self.days[-1], self.days, "all_in")
+        self.assertEqual([t["shares"] for t in r["trades"]], [100, 110])
+        self.assertEqual(r["stats"]["final_usd"], 1100)
+
+    def test_all_in_reserves_commission_and_accounts_for_slippage(self):
+        config = replace(self.config, commission_per_share=.005, slippage_bps=10)
+        r = simulate_portfolio({"A": [bar(d) for d in self.days]},
+                               {self.days[0]: [signal("A")]}, config,
+                               self.days[0], self.days[-1], self.days, "all_in")
+        self.assertEqual(r["open_positions"][0]["shares"], 99)
+        self.assertTrue(all(v["cash_usd"] >= 0 for v in r["equity_curve"]))
+        self.assertAlmostEqual(r["stats"]["final_usd"], 1000 - 99 * .015)
+
+    def test_all_in_skips_invalid_top_signal_then_buys_next(self):
+        histories = {"A": [bar(self.days[1], opening=15, high=16, low=14, close=15)],
+                     "B": [bar(self.days[1]), bar(self.days[2])]}
+        r = simulate_portfolio(histories, {self.days[0]: [signal("A", volume=3), signal("B")]},
+                               self.config, self.days[0], self.days[-1], self.days, "all_in")
+        self.assertEqual(r["stats"]["skipped"]["entry_gap"], 1)
+        self.assertEqual(r["open_positions"][0]["symbol"], "B")
+        self.assertEqual(r["open_positions"][0]["shares"], 100)
+
 
 if __name__ == "__main__":
     unittest.main()
