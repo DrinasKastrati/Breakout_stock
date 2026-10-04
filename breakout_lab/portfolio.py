@@ -44,13 +44,15 @@ def drawdown(curve, initial):
     return worst
 
 
-def simulate_portfolio(histories, signals, config, start, end, sessions):
+def simulate_portfolio(histories, signals, config, start, end, sessions, allocation="risk_budget"):
     """Shared USD cash account, whole shares, one position per symbol.
 
     Ranking is based only on the prior close: score, relative volume,
     smallest extension, then symbol. Position sizing uses current opening
     equity; no leverage. Open positions are marked at the final close.
     """
+    if allocation not in ("risk_budget", "all_in"):
+        raise ValueError("Unsupported allocation mode")
     date.fromisoformat(start); date.fromisoformat(end)
     if start > end:
         raise ValueError("Start date must precede end date")
@@ -102,6 +104,9 @@ def simulate_portfolio(histories, signals, config, start, end, sessions):
                                                 c["extension_atr"], c["symbol"]))
         for c in ranked:
             symbol = c["symbol"]
+            if allocation == "all_in" and positions:
+                skipped["portfolio_occupied"] += 1
+                continue
             if symbol in positions:
                 skipped["already_held"] += 1
                 continue
@@ -115,9 +120,10 @@ def simulate_portfolio(histories, signals, config, start, end, sessions):
                 skipped["entry_gap"] += 1
                 continue
             equity = max(0.0, opening_equity(day))
-            shares = min(math.floor(equity * config.risk_fraction / (entry - stop)),
-                         math.floor(equity * config.max_position_fraction / entry),
-                         math.floor(max(0.0, cash) / (entry + commission)))
+            affordable = math.floor(max(0.0, cash) / (entry + commission))
+            shares = affordable if allocation == "all_in" else min(
+                math.floor(equity * config.risk_fraction / (entry - stop)),
+                math.floor(equity * config.max_position_fraction / entry), affordable)
             if shares < 1:
                 skipped["cash_or_size"] += 1
                 continue
@@ -134,6 +140,8 @@ def simulate_portfolio(histories, signals, config, start, end, sessions):
                                  "target": entry + config.reward_risk * (entry - stop),
                                  "holding_bars": 1, "mark": b.open}
         max_positions = max(max_positions, len(positions))
+        if allocation == "all_in" and len(positions) > 1:
+            raise AssertionError("All-in mode held more than one position")
 
         # Intraday proceeds cannot retroactively fund opening entries.
         for symbol in sorted(list(positions)):
@@ -186,7 +194,7 @@ def simulate_portfolio(histories, signals, config, start, end, sessions):
              "unfilled_final_session_signals": len(pending),
              "skipped": dict(skipped), "stale_position_sessions": stale_marks,
              "annual_returns": annual, "sessions": len(days)}
-    return {"start": start, "end": end, "stats": stats, "equity_curve": curve,
+    return {"start": start, "end": end, "allocation": allocation, "stats": stats, "equity_curve": curve,
             "trades": trades, "open_positions": list(positions.values())}
 
 
@@ -204,7 +212,7 @@ def benchmark(bars, config, start, end):
             "start": selected[0].date, "end": selected[-1].date}
 
 
-def report(assets, histories, metadata, config, start, end):
+def report(assets, histories, metadata, config, start, end, allocation="risk_budget"):
     signals, warm = discover_signals(assets, histories, config, start, end)
     spy = histories.get("SPY", [])
     if not spy or spy[-1].date != end:
@@ -212,7 +220,7 @@ def report(assets, histories, metadata, config, start, end):
     current = sum(bool(histories.get(a.symbol)) and histories[a.symbol][-1].date == end for a in assets)
     if current < len(assets) * .9:
         raise ValueError("Latest session coverage below 90 percent")
-    result = simulate_portfolio(histories, signals, config, start, end, [b.date for b in spy])
+    result = simulate_portfolio(histories, signals, config, start, end, [b.date for b in spy], allocation)
     result.update({"benchmark": benchmark(spy, config, start, end),
                    "metadata": metadata, "config": config.to_dict(),
                    "scope": "shared_cash_portfolio", "assets": len(assets),
@@ -246,12 +254,16 @@ def markdown(result):
             ("Modellerad slippage (USD)", f"{s['slippage_usd']:,.2f}"),
             ("SPY kursavkastning utan utdelningar", pct(b["return"])),
             ("SPY största nedgång, dagsstängningar", pct(b["max_drawdown"]))]
-    out = ["# Portföljbacktest – breakout + volym + MACD", "",
+    all_in = result.get("allocation") == "all_in"
+    sizing = ("100 % av tillgängligt kapital i en enda position åt gången. Antalet hela aktier avrundas nedåt och courtage reserveras; en liten kontantrest kan därför bli kvar. Riskbudget och 15 %-gränsen från standardläget används inte. Ingen belåning."
+              if all_in else f"Riskbudget {pct(c['risk_fraction'])} av aktuellt eget kapital per affär; högst {pct(c['max_position_fraction'])} per position. Ingen belåning. Hela aktier.")
+    title = "# Portföljbacktest – 100 % i en aktie åt gången" if all_in else "# Portföljbacktest – breakout + volym + MACD"
+    out = [title, "",
            f"Period: **{result['start']} – {result['end']}**, {s['sessions']} sessioner.", "",
            "| Mått | Resultat |", "| --- | ---: |"]
     out += [f"| {k} | {v} |" for k, v in rows]
     out += ["", f"Universum: {result['assets']} nuvarande instrument; {result['assets_with_warmup_at_start']} hade minst {c['min_history']} candles vid periodstart.", "",
-            f"Riskbudget {pct(c['risk_fraction'])} av aktuellt eget kapital per affär; högst {pct(c['max_position_fraction'])} per position. Ingen belåning. Hela aktier.", "",
+            sizing, "",
             f"Entry vid nästa sessions öppning efter avslutad breakoutsignal. Slippage {c['slippage_bps']:g} baspunkter per sida; courtage ${c['commission_per_share']:g}/aktie per sida.", "",
             f"Exit vid stop under basen, mål {c['reward_risk']:g}R eller {c['max_holding_bars']} candles. Stop prioriteras om stop och mål träffas i samma candle. Ingen separat MACD-säljsignal.", "",
             "Rangordning: föregående stängnings poäng, relativ volym, lägst ATR-extension, sedan ticker. Intradagsförsäljningar kan inte finansiera samma dags öppningsköp.", "",
@@ -260,6 +272,15 @@ def markdown(result):
             "## Avkastning per kalenderår (första och sista är delår)", "",
             "| Period | Avkastning |", "| --- | ---: |"]
     out += [f"| {v['start']} – {v['end']} | {pct(v['return'])} |" for v in s["annual_returns"].values()]
+    if "comparison_baseline" in result:
+        base = result["comparison_baseline"]["stats"]
+        out += ["", "## Jämförelse på exakt samma hämtade data", "",
+                "| Mått | Riskbudget och högst 15 % per position | 100 % i en position |",
+                "| --- | ---: | ---: |",
+                f"| Slutvärde USD | {base['final_usd']:,.2f} | {s['final_usd']:,.2f} |",
+                f"| Avkastning | {pct(base['return'])} | {pct(s['return'])} |",
+                f"| Största nedgång | {pct(base['max_drawdown'])} | {pct(s['max_drawdown'])} |",
+                f"| Stängda affärer | {base['closed_trades']} | {s['closed_trades']} |"]
     out += ["", "## Begränsningar", ""] + [f"- {v}" for v in result["limitations"]]
     out += ["", "Resultatet gäller denna regeluppsättning och datamängd. Överlevnadsbias innebär att det inte är ett historiskt komplett börstest.", ""]
     return "\n".join(out)
@@ -269,6 +290,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--years", type=int, default=2)
     parser.add_argument("--capital", type=float, default=100_000)
+    parser.add_argument("--allocation", choices=("risk_budget", "all_in"), default="risk_budget")
     parser.add_argument("--output", default="dist/portfolio")
     args = parser.parse_args()
     if not 1 <= args.years <= 5 or not math.isfinite(args.capital) or args.capital <= 0:
@@ -287,7 +309,10 @@ def main():
         start_day = end_day.replace(year=end_day.year - args.years)
     except ValueError:
         start_day = end_day.replace(year=end_day.year - args.years, day=28)
-    result = report(assets, histories, metadata, config, start_day.isoformat(), end_day.isoformat())
+    result = report(assets, histories, metadata, config, start_day.isoformat(), end_day.isoformat(), args.allocation)
+    if args.allocation == "all_in":
+        baseline = report(assets, histories, metadata, config, start_day.isoformat(), end_day.isoformat())
+        result["comparison_baseline"] = {"stats": baseline["stats"], "equity_curve": baseline["equity_curve"]}
     output = Path(args.output)
     output.mkdir(parents=True, exist_ok=True)
     # Only aggregated simulated-account statistics are public. Individual
@@ -298,15 +323,20 @@ def main():
                 "salt": b64encode(salt).decode(), "nonce": b64encode(nonce).decode(),
                 "ciphertext": b64encode(encrypted).decode()}
     (output / "personal-report.encrypted.json").write_bytes(json_bytes(envelope))
-    public = {k: result[k] for k in ("start", "end", "stats", "benchmark", "assets",
+    public = {k: result[k] for k in ("start", "end", "allocation", "stats", "benchmark", "assets",
                                       "assets_with_warmup_at_start", "scope", "config", "limitations", "equity_curve")}
+    if "comparison_baseline" in result:
+        public["comparison_baseline"] = result["comparison_baseline"]
     (output / "summary.json").write_bytes(json_bytes(public))
     md = markdown(result)
     (output / "report.md").write_text(md, encoding="utf-8")
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
             f.write(md)
-    print("PORTFOLIO_RESULT=" + json.dumps({k: public[k] for k in public if k != "equity_curve"}, allow_nan=False))
+    logged = {k: public[k] for k in public if k not in ("equity_curve", "comparison_baseline")}
+    if "comparison_baseline" in public:
+        logged["comparison_baseline"] = {"stats": public["comparison_baseline"]["stats"]}
+    print("PORTFOLIO_RESULT=" + json.dumps(logged, allow_nan=False))
     return 0
 
 
