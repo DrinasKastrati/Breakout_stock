@@ -361,6 +361,7 @@ def markdown(result):
            "| Mått | Resultat |", "| --- | ---: |"]
     out += [f"| {k} | {v} |" for k, v in rows]
     out += ["", f"Universum: {result['assets']} nuvarande instrument; {result['assets_with_warmup_at_start']} hade minst {c['min_history']} candles vid periodstart.", "",
+            f"Exkluderade tickers: {', '.join(c['excluded_symbols']) or 'Inga'}. Samma exkludering gäller jämförelsekontot.", "",
             sizing, "",
             f"Entry vid nästa sessions öppning efter avslutad breakoutsignal. Slippage {c['slippage_bps']:g} baspunkter per sida; courtage ${c['commission_per_share']:g}/aktie per sida.", "",
             f"Exit vid stop under basen, mål {c['reward_risk']:g}R eller {c['max_holding_bars']} candles. Stop prioriteras om stop och mål träffas i samma candle. Ingen separat MACD-säljsignal.", "",
@@ -397,6 +398,7 @@ def main():
     parser.add_argument("--years", type=int, default=2)
     parser.add_argument("--capital", type=float, default=100_000)
     parser.add_argument("--allocation", choices=("risk_budget", "all_in"), default="risk_budget")
+    parser.add_argument("--exclude-symbols", default="", help="Comma-separated tickers excluded from both accounts")
     parser.add_argument("--output", default="dist/portfolio")
     args = parser.parse_args()
     if not 1 <= args.years <= 5 or not math.isfinite(args.capital) or args.capital <= 0:
@@ -409,7 +411,12 @@ def main():
     salt = os.urandom(16)
     key = derive_key(passphrase, salt)  # Validate before downloading.
     config = replace(Config.from_dict(json.loads(Path("config.json").read_text())), account_equity=args.capital)
+    excluded = tuple(sorted(set(config.excluded_symbols) | {s.strip().upper() for s in args.exclude_symbols.split(',') if s.strip()}))
+    config = replace(config, excluded_symbols=excluded)
+    print(f"PORTFOLIO_STAGE=Downloading {args.years + 1} years including warmup", flush=True)
     assets, histories, metadata = Alpaca("sip").dataset(years=args.years + 1)
+    assets = [a for a in assets if a.symbol not in excluded]
+    print(f"PORTFOLIO_STAGE=Simulating {args.years} years; assets={len(assets)}; excluded={','.join(excluded)}", flush=True)
     end_day = date.fromisoformat(metadata["as_of"])
     try:
         start_day = end_day.replace(year=end_day.year - args.years)
