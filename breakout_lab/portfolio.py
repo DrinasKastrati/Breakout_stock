@@ -44,15 +44,21 @@ def drawdown(curve, initial):
     return worst
 
 
-def simulate_portfolio(histories, signals, config, start, end, sessions, allocation="risk_budget"):
+def simulate_portfolio(histories, signals, config, start, end, sessions, allocation="risk_budget",
+                       *, position_fraction=None, exit_rule="initial"):
     """Shared USD cash account, whole shares, one position per symbol.
 
     Ranking is based only on the prior close: score, relative volume,
     smallest extension, then symbol. Position sizing uses current opening
     equity; no leverage. Open positions are marked at the final close.
     """
-    if allocation not in ("risk_budget", "all_in"):
+    if allocation not in ("risk_budget", "all_in", "fixed_fraction"):
         raise ValueError("Unsupported allocation mode")
+    if allocation == "fixed_fraction" and (position_fraction is None or
+            not math.isfinite(position_fraction) or not 0 < position_fraction <= 1):
+        raise ValueError("Fixed position fraction must be in (0, 1]")
+    if exit_rule not in ("initial", "macd", "atr_trailing"):
+        raise ValueError("Unsupported exit rule")
     date.fromisoformat(start); date.fromisoformat(end)
     if start > end:
         raise ValueError("Start date must precede end date")
@@ -61,6 +67,23 @@ def simulate_portfolio(histories, signals, config, start, end, sessions, allocat
         raise ValueError("No benchmark sessions in the requested test period")
     symbols = {c["symbol"] for candidates in signals.values() for c in candidates}
     indexed = {s: {b.date: b for b in histories.get(s, [])} for s in symbols}
+    # Compute from full warmup history, then use only the current completed close.
+    exit_events = {}
+    if exit_rule != "initial":
+        for symbol in symbols:
+            bars = [b for b in histories.get(symbol, []) if b.date <= end]
+            ind = calculate(bars)
+            events = {}
+            for i, b in enumerate(bars):
+                if not start <= b.date <= end:
+                    continue
+                if exit_rule == "macd":
+                    if i and ind["signal"][i-1] is not None and ind["signal"][i] is not None:
+                        events[b.date] = (ind["macd"][i-1] >= ind["signal"][i-1]
+                                          and ind["macd"][i] < ind["signal"][i])
+                elif ind["atr"][i] is not None:
+                    events[b.date] = b.close - 2 * ind["atr"][i]
+            exit_events[symbol] = events
     initial, cash = config.account_equity, config.account_equity
     slip, commission = config.slippage_bps / 10_000, config.commission_per_share
     positions, trades, curve = {}, [], []
@@ -80,7 +103,7 @@ def simulate_portfolio(histories, signals, config, start, end, sessions, allocat
         pnl = p["shares"] * (fill - p["entry"]) - exit_fee - p["entry_fee"]
         trades.append({**p, "exit_date": day, "exit": fill,
                        "exit_reason": reason, "pnl_usd": pnl,
-                       "r_multiple": pnl / (p["shares"] * (p["entry"] - p["stop"]))})
+                       "r_multiple": pnl / (p["shares"] * (p["entry"] - p.get("initial_stop", p["stop"])))})
 
     def opening_equity(day):
         return cash + sum(p["shares"] * (indexed[s][day].open if day in indexed[s] else p["mark"])
@@ -99,6 +122,8 @@ def simulate_portfolio(histories, signals, config, start, end, sessions, allocat
             elif b.open >= p["target"]:
                 # Conservative: do not credit a better-than-target gap fill.
                 close(symbol, p["target"], day, "target_gap")
+            elif p.get("pending_macd_exit"):
+                close(symbol, b.open, day, "macd_next_open")
 
         ranked = sorted(pending, key=lambda c: (-c["score"], -c["relative_volume"],
                                                 c["extension_atr"], c["symbol"]))
@@ -121,9 +146,14 @@ def simulate_portfolio(histories, signals, config, start, end, sessions, allocat
                 continue
             equity = max(0.0, opening_equity(day))
             affordable = math.floor(max(0.0, cash) / (entry + commission))
-            shares = affordable if allocation == "all_in" else min(
-                math.floor(equity * config.risk_fraction / (entry - stop)),
-                math.floor(equity * config.max_position_fraction / entry), affordable)
+            if allocation == "all_in":
+                shares = affordable
+            elif allocation == "fixed_fraction":
+                # Fraction of current equity, including entry commission, cash limited.
+                shares = min(math.floor(equity * position_fraction / (entry + commission)), affordable)
+            else:
+                shares = min(math.floor(equity * config.risk_fraction / (entry - stop)),
+                             math.floor(equity * config.max_position_fraction / entry), affordable)
             if shares < 1:
                 skipped["cash_or_size"] += 1
                 continue
@@ -139,6 +169,8 @@ def simulate_portfolio(histories, signals, config, start, end, sessions, allocat
                                  "entry_fee": fee, "stop": stop,
                                  "target": entry + config.reward_risk * (entry - stop),
                                  "holding_bars": 1, "mark": b.open}
+            if exit_rule == "atr_trailing":
+                positions[symbol]["initial_stop"] = stop
         max_positions = max(max_positions, len(positions))
         if allocation == "all_in" and len(positions) > 1:
             raise AssertionError("All-in mode held more than one position")
@@ -158,6 +190,12 @@ def simulate_portfolio(histories, signals, config, start, end, sessions, allocat
                 close(symbol, b.close, day, "time")
             else:
                 p["mark"] = b.close
+                event = exit_events.get(symbol, {}).get(day)
+                if exit_rule == "macd" and event:
+                    p["pending_macd_exit"] = True
+                elif exit_rule == "atr_trailing" and event is not None:
+                    # Ratchet after the close; never retroactively stop on today's low.
+                    p["stop"] = max(p["stop"], event)
         invested = sum(p["shares"] * p["mark"] for p in positions.values())
         equity = cash + invested
         curve.append({"date": day, "equity_usd": equity, "cash_usd": cash,
