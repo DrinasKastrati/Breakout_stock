@@ -16,7 +16,7 @@ WOLF och RNA har tagits bort lika ur samtliga nio tester. Tidigare rapporter inn
 
 År 1 avser 2024-10-02–2025-10-01. År 2 avser 2025-10-02–2026-10-02. Varje år startar med 100 000 USD och utan ärvda positioner. Perioden har redan granskats; årstesterna är robusthetskontroller och ingen orörd validering.
 
-[Källkörning i GitHub Actions](https://github.com/DrinasKastrati/Breakout_stock/actions/runs/37193908983). Kod vid körningen: `0d49cf7b4bcd2cb80e71d8466add1e4238dd293d`. Samtliga 72 tester passerade även i GitHub. Rapporten ändrar ingen live-strategi och skickar inga order.
+[Källkörning i GitHub Actions](https://github.com/DrinasKastrati/Breakout_stock/actions/runs/37193908983). Kod vid körningen: `0d49cf7b4bcd2cb80e71d8466add1e4238dd293d`. Samtliga 72 tester passerade även i GitHub. Den första Actions-sammanfattningen innehåller dessutom en syntetisk testtabell före de riktiga resultaten. Den gäller inte börstestet. Testets rapportskrivning har rättats för kommande körningar; denna fil och artefakten innehåller endast de verkliga resultaten. Rapporten ändrar ingen live-strategi och skickar inga order.
 
 Period: **2024-10-02 – 2026-10-02**. Startkapital: **100,000 USD**. 1D-candles.
 
