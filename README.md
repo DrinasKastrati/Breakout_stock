@@ -148,6 +148,8 @@ Nuvarande bolagsmetadata får inte användas i historiska tester som om den vari
 
 ### Portföljtest med gemensamt kapital
 
+Workflowens val `allocation=all_in` investerar hela tillgängliga kapitalet i en aktie åt gången, utan belåning. Hela aktier avrundas nedåt och courtage reserveras. Nya signaler ignoreras medan positionen är öppen. Breakoutregler, rangordning och exits är desamma, medan riskbudgeten på 0,5 % och positionsgränsen på 15 % inte används för storleken. Samma körning räknar om standardläget på exakt samma hämtade data för jämförelse. Lokalt: `python -m breakout_lab.portfolio --years 2 --capital 100000 --allocation all_in`.
+
 Välj **Actions → Portfolio backtest → Run workflow** på GitHub. Standardvalen är två års test och 100 000 USD. Samma tre Secrets som för dashboarden används. Körningen hämtar ett extra år före testperioden för indikatorernas uppvärmning och använder hela det upptäckta nuvarande universumet.
 
 Detta separata test har en gemensam kontantbudget, hela aktier, återinvestering, 0,5 % riskbudget och högst 15 % av aktuellt eget kapital per position. Ingen belåning används. Köp sker vid nästa sessions öppning efter breakout + volym + MACD. Befintliga exits används: stop under basen, 2R-mål eller efter 20 candles. **En separat MACD-säljsignal finns inte.** När flera signaler konkurrerar rangordnas de med föregående stängnings poäng, relativ volym, lägst ATR-extension och ticker.
