@@ -12,6 +12,11 @@ on:
         description: Starting simulated capital in USD
         type: string
         default: '100000'
+      allocation:
+        description: Allocation (all_in buys one stock using all available cash)
+        type: choice
+        options: [risk_budget, all_in]
+        default: risk_budget
 
 permissions:
   contents: read
@@ -39,7 +44,8 @@ jobs:
           DASHBOARD_PASSPHRASE: ${{ secrets.DASHBOARD_PASSPHRASE }}
           TEST_YEARS: ${{ inputs.years }}
           TEST_CAPITAL: ${{ inputs.capital }}
-        run: python -m breakout_lab.portfolio --years "$TEST_YEARS" --capital "$TEST_CAPITAL"
+          TEST_ALLOCATION: ${{ inputs.allocation }}
+        run: python -m breakout_lab.portfolio --years "$TEST_YEARS" --capital "$TEST_CAPITAL" --allocation "$TEST_ALLOCATION"
       - name: Upload aggregated report and encrypted personal details
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
