@@ -120,7 +120,7 @@ class ExperimentTests(unittest.TestCase):
                 self.assertNotIn("open_positions", period)
         self.assertTrue(all("WOLF" not in str(p["trades"]) for r in result["variants"] for p in r["periods"].values()))
         with tempfile.TemporaryDirectory() as directory:
-            with patch("builtins.print"):
+            with patch("builtins.print"), patch.dict("os.environ", {"GITHUB_STEP_SUMMARY": ""}):
                 save(result, directory, "test-passphrase-12345")
             summary = json.loads((Path(directory)/"summary.json").read_text())
             self.assertEqual(summary, json.loads(json.dumps(public)))
