@@ -3,6 +3,7 @@
 ## Genomförda kontroller
 
 - `python -m unittest discover -s tests -v`: 43 tester passerar lokalt på Python 3.12.
+- Samma 43 tester, JavaScript-kontroller och statiskt demobygge passerar också i GitHub Actions på Python 3.11, 3.12 och 3.13: [verifierad körning](https://github.com/DrinasKastrati/Breakout_stock/actions/runs/37166677704). Testad kodcommit: `7b6f937a6e7818371a871fc19ad9ebaa0ca59074`.
 - Kommandon för demoinläsning, scanning och backtest har körts.
 - `node --check` kontrollerar både `app.js` och `data-client.js`.
 - API-tester verifierar scanning, diagramdata, tre backtestvarianter, CSV-export och settingsvalidering.
@@ -22,7 +23,6 @@
 - Riktiga Alpaca-anrop: användarens Basic-nycklar saknas i miljön. HTTP-paginering och datakontrakt testas med stubbar.
 - Pages-deployment och det återkommande schemat: kräver användarens godkända repo-synlighet, Pages-inställningar och secrets.
 - Visuell rendering i webbläsare: Playwright finns, men browser-binären saknas. Ingen skärmbild eller visuell QA har därför genomförts.
-- Python 3.11/3.13: konfigurerade i GitHub Actions, men har inte körts lokalt här.
 - Fullt amerikanskt universum, verklig likviditet, historiskt instrumentregister och strategins marknadsresultat.
 
 Gränssnittets primära manuella kontroll är desktop + mobil: läs scanning, välj kandidat, granska OHLC/MACD, filtrera listan och kontrollera provenance. På Pages: lås upp, exportera CSV, öppna GitHub-inställningslänken och visa senaste jämförelse. Lokalt: spara risknivå och kör ett eget testintervall. Tester av API är inte ett substitut för visuell kontroll.
