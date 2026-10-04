@@ -1,0 +1,2 @@
+# Free/open-source package for encrypting personal snapshots. Local/demo mode needs none.
+cryptography==50.0.2

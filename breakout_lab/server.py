@@ -83,7 +83,8 @@ def handler(app):
             params = parse_qs(parsed.query)
             try:
                 if parsed.path == "/api/health":
-                    self.send_json({"status": "ok", "version": "0.1.0"})
+                    from . import __version__
+                    self.send_json({"status": "ok", "version": __version__})
                 elif parsed.path == "/api/scan":
                     self.send_json(app.scan())
                 elif parsed.path == "/api/bars":
@@ -119,7 +120,7 @@ def handler(app):
                     self.send_header("Content-Length", str(len(raw)))
                     self.end_headers()
                     self.wfile.write(raw)
-                elif parsed.path in ("/", "/index.html", "/app.js", "/style.css"):
+                elif parsed.path in ("/", "/index.html", "/app.js", "/data-client.js", "/style.css"):
                     super().do_GET()
                 else:
                     self.send_json({"error": "Not found"}, 404)
@@ -132,7 +133,7 @@ def handler(app):
         def do_HEAD(self):
             if not self.safe_request():
                 return
-            if urlparse(self.path).path not in ("/", "/index.html", "/app.js", "/style.css"):
+            if urlparse(self.path).path not in ("/", "/index.html", "/app.js", "/data-client.js", "/style.css"):
                 self.send_error(404)
                 return
             super().do_HEAD()

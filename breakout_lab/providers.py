@@ -100,6 +100,8 @@ class Alpaca:
     def get(self, host, route, params):
         url = host + route + "?" + urlencode(params)
         for attempt in range(4):
+            # At most ~171 requests/minute, below Basic's 200/minute limit.
+            self.sleeper(0.35)
             try:
                 with self.opener(Request(url, headers=self.headers), timeout=30) as response:
                     return json.load(response)
@@ -127,14 +129,19 @@ class Alpaca:
             assets.append(Asset(row["symbol"], name, row["exchange"], kind, classification="heuristic"))
         return assets
 
-    def bars(self, symbols, start, as_of):
+    def bars(self, symbols, start, as_of, now=None):
+        now = now or datetime.now(timezone.utc)
+        # Basic permits historical SIP when end is at least 15 minutes old.
+        # Never send a future midnight or use the paid latest/snapshot endpoints.
+        session_end = datetime.combine(date.fromisoformat(as_of), time(21), NY)
+        end = min(session_end, now - timedelta(minutes=16)).astimezone(timezone.utc).isoformat()
         histories = {s: [] for s in symbols}
         for offset in range(0, len(symbols), 100):
             chunk = symbols[offset:offset+100]
             token, seen = None, set()
             while True:
                 params = {"symbols": ",".join(chunk), "timeframe": "1Day", "start": start,
-                          "end": (date.fromisoformat(as_of)+timedelta(days=1)).isoformat(),
+                          "end": end,
                           "adjustment": "split", "feed": self.feed, "limit": 10000, "sort": "asc"}
                 if token:
                     params["page_token"] = token
@@ -156,12 +163,16 @@ class Alpaca:
             histories[symbol] = sorted(history, key=lambda b: b.date)
         return histories
 
-    def dataset(self, metadata_path=None, limit=None, years=3):
-        now = datetime.now(timezone.utc)
+    def completed_session(self, now=None):
+        now = now or datetime.now(timezone.utc)
         local_day = now.astimezone(NY).date()
         calendar = self.get("https://paper-api.alpaca.markets", "/v2/calendar",
                             {"start": (local_day-timedelta(days=30)).isoformat(), "end": local_day.isoformat()})
-        as_of = latest_complete_session(calendar, now)
+        return latest_complete_session(calendar, now)
+
+    def dataset(self, metadata_path=None, limit=None, years=3):
+        now = datetime.now(timezone.utc)
+        as_of = self.completed_session(now)
         metadata = read_metadata(metadata_path)
         assets = [replace(a, **metadata.get(a.symbol, {})) for a in self.assets()]
         assets = sorted([a for a in assets if a.kind == "common" and a.symbol != "SPY"], key=lambda a: a.symbol)
@@ -171,11 +182,11 @@ class Alpaca:
         if limit is not None:
             assets = assets[:limit]
         start = (date.fromisoformat(as_of)-timedelta(days=365*years+30)).isoformat()
-        histories = self.bars([a.symbol for a in assets]+["SPY"], start, as_of)
+        histories = self.bars([a.symbol for a in assets]+["SPY"], start, as_of, now)
         return assets, histories, {"source": "alpaca", "feed": self.feed, "as_of": as_of,
                                     "synced_at": now.isoformat(), "synthetic": False,
                                     "benchmark_symbol": "SPY", "discovered_assets": total,
                                     "sample_limit": limit, "adjustment": "split", "bar_definition": "provider_1Day",
                                     "notes": ["Aktiva handlingsbara instrument hos Alpaca; ej ett historiskt komplett börsuniversum.",
                                               "Instrumenttyp uppskattas från namn om kuraterad metadata saknas.",
-                                              "IEX omfattar en börs; SIP kräver rätt abonnemang." if self.feed == "iex" else "SIP används för bred volymtäckning."]}
+                                              "IEX omfattar en börs." if self.feed == "iex" else "Historisk SIP via Basic; end är minst 16 minuter gammalt."]}

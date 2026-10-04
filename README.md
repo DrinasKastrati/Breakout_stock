@@ -2,9 +2,27 @@
 
 En körbar första version av en daglig breakoutscreener för amerikanska aktier. Systemet hittar kandidater, visar varför de kvalificerar sig och jämför strategier med och utan volym/MACD. Gränssnittet är på svenska.
 
-**Status: v0.1, lokalt forskningsverktyg.** Demoläget fungerar utan konton eller installation av extra Python-paket. En läsande Alpaca-klient är implementerad; riktig synkronisering kräver egna API-nycklar och rätt dataabonnemang. Inga köp- eller säljorder skickas.
+**Status: v0.2, statisk dashboard för GitHub Pages + lokalt forskningsverktyg.** Gratis GitHub Actions hämtar avslutade dagsdata, beräknar signaler och uppdaterar sidan. Alpaca Basic räcker för historisk SIP-data; inga betalabonnemang behövs för det implementerade upplägget. Inga köp- eller säljorder skickas.
 
-## Kom igång
+## Starta via GitHub-hemsidan
+
+Alla steg för drift kan göras i webbläsaren. Ingen egen server, terminal eller betalt webbhotell krävs.
+
+1. **Gratis Pages kräver ett publikt repo.** Projektet är förberett, men synlighet ändras inte automatiskt. Läs och följ [installationsguiden](docs/github-setup.md).
+2. Välj **Settings → Pages → Source: GitHub Actions**.
+3. Lägg dina gratis Alpaca Basic/paper-nycklar och en egen slumpmässig lösenfras i **Settings → Secrets and variables → Actions → Secrets**: `ALPACA_API_KEY`, `ALPACA_API_SECRET`, `DASHBOARD_PASSPHRASE`.
+4. Lägg till **Variables**: `ENABLE_PAGES=true`, `ENABLE_AUTO_UPDATE=true`.
+5. Välj **Actions → Update dashboard → Run workflow → source: alpaca**. Länken till sidan visas efter första lyckade publiceringen.
+
+För en första titt kan du välja `source: demo` utan API-nycklar; då visas tydligt fiktiva aktier. Aktivera automatisk uppdatering först när de tre hemligheterna är klara.
+
+Koden och webbgränssnittet kan vara publika, medan riktiga analys- och diagramfiler alltid krypteras innan uppladdning. Du låser upp dem i webbläsaren med din egen lösenfras. API-nycklarna skickas aldrig till sidan. Detta är en dashboard för kontoinnehavarens **personliga bruk**: Alpaca tillåter inte vidarepublicering av sina API-data. Kryptering skyddar innehållet men ger inga ytterligare datarättigheter.
+
+Dagliga körningar sker **01.37 och 02.37 UTC, tisdag–lördag**, efter föregående New York-handelsdag. Andra körningen kontrollerar också sena datakorrigeringar. Oförändrad analys publiceras inte igen. Om datahämtning, tester eller publicering misslyckas ligger föregående lyckade sida kvar, med sitt sessionsdatum. En öppen flik kontrollerar ny analys var femte minut.
+
+Strategiinställningar ändras genom att redigera `config.json` på GitHub och välja **Commit changes**. Sidan länkar till redigeraren. Push till `main` startar en ny analys och publicering. Backtestet på Pages beräknas automatiskt för senaste året; fria datumval och direkt ändring av inställningar finns i den lokala versionen. 4H ingår inte ännu.
+
+## Kör lokalt (valfritt)
 
 Kräver Python 3.11 eller senare och operativsystemets tidszonsdata. Kör från projektmappen:
 
@@ -19,7 +37,7 @@ Demoläget skapar åtta **fiktiva** aktier och 650 syntetiska dagscandles per ak
 
 På system utan IANA-tidszonsdatabas, till exempel vissa Windows-installationer, installera `tzdata` med `python -m pip install tzdata`.
 
-## Det som finns i v0.1
+## Funktioner i v0.2
 
 - Screener med breakout, bevakning, översträckt, ingen setup och filtrerad.
 - Sökning, statusfilter och CSV-export.
@@ -31,7 +49,7 @@ På system utan IANA-tidszonsdatabas, till exempel vissa Windows-installationer,
 - Alpaca-integration med symbolbatcher, paginering, begränsade omförsök och splitjustering.
 - Import av dagliga OHLCV-data och kuraterad bolagsmetadata från CSV.
 - Backtest av oberoende affärer och jämförelse av tre strategivarianter.
-- 30 automatiska tester och GitHub Actions för Python 3.11, 3.12 och 3.13.
+- Automatisk Pages-publicering, uppdateringsschema, krypterade personliga snapshotfiler och testning på Python 3.11, 3.12 och 3.13.
 
 ## Riktiga marknadsdata
 
@@ -45,7 +63,7 @@ export ALPACA_DATA_FEED='sip'
 
 `.env.example` visar variabelnamnen. Applikationen laddar **inte** `.env` automatiskt. Nycklar ska vara servervariabler och får aldrig läggas i frontend eller Git. Applikationen använder enbart GET-anrop till tillgångs-, kalender- och marknadsdataendpoints.
 
-SIP kräver rätt dataåtkomst och används som standard eftersom volymfiltret ska ha bred börstäckning. `iex` kan användas uttryckligen, men representerar en enskild börs. Resultat från de två flödena är inte direkt jämförbara.
+Alpaca Basic tillåter **historisk SIP utan betalabonnemang när `end` är minst 15 minuter gammalt**. Klienten skickar ett uttryckligt slutvärde minst 16 minuter bakåt och använder inga SIP-endpoints för realtid, latest eller snapshot. Anrop begränsas till högst cirka 171/minut, under Basics gräns på 200/minut. SIP används som standard för bred volymtäckning. `iex` representerar en enskild börs och är inte direkt jämförbart med SIP.
 
 ### 2. Kör först ett mindre anslutningstest
 
@@ -67,7 +85,7 @@ Synkroniseringen hämtar om hela det valda historikintervallet för att undvika 
 
 Den senaste handelsdagen används först efter **20.15 New York-tid**. Kalendern hämtas från Alpaca för helgdagar och förkortade sessioner. Pris- och volymaggregering följer leverantörens `1Day`-definition; den ska inte antas vara identisk med egna candles som byggs enbart från ordinarie handel.
 
-**”Uppdatera analys” räknar om den lagrade datan.** Kör `sync` igen för att hämta nya kurser. Datasetets session visas alltid i gränssnittet och aktier med saknad senaste session filtreras bort. Kontrollera att sessionen är aktuell innan analysen används.
+**I den lokala versionen räknar ”Uppdatera analys” om den lagrade datan.** Kör `sync` igen för att hämta nya kurser. På GitHub Pages hämtar Actions nya kurser enligt schemat; knappen läser senaste publicerade analysen. Datasetets session visas alltid i gränssnittet och aktier med saknad senaste session filtreras bort. Kontrollera att sessionen är aktuell innan analysen används.
 
 ### Bolagsmetadata
 
@@ -132,7 +150,7 @@ Nuvarande bolagsmetadata får inte användas i historiska tester som om den vari
 python -m unittest discover -s tests -v
 ```
 
-Inga runtimeberoenden utöver Python-standardbiblioteket. Frontend använder vanlig HTML/CSS/JavaScript och canvas. SQLite lagrar data. Python-servern lyssnar endast på `127.0.0.1` och accepterar endast lokala Host-headers och samma Origin. Den är byggd för lokal användning, inte offentlig hosting.
+Lokal analys och demo behöver bara Python-standardbiblioteket. Krypterade Pages-byggen använder också det fria paketet `cryptography` från `requirements-pages.txt`. Frontend använder vanlig HTML/CSS/JavaScript och canvas. SQLite lagrar data. Python-servern lyssnar endast på `127.0.0.1` och accepterar endast lokala Host-headers och samma Origin. Den är byggd för lokal användning, inte offentlig hosting.
 
 ```text
 breakout_lab/
@@ -143,10 +161,22 @@ breakout_lab/
   providers.py    Alpaca och CSV-import
   storage.py      SQLite och atomisk uppdatering
   server.py       Lokalt API och webbgränssnitt
+  pages.py        Statisk export och krypterade snapshotfiler
   cli.py          Kommandon
   static/         Dashboard
 tests/            Beräkning, kausalitet, data och API
 ```
+
+## Bygg statiska filer lokalt (valfritt)
+
+```bash
+python -m breakout_lab build-site --source demo --repository DrinasKastrati/Breakout_stock
+python -m http.server --directory dist/site 8080
+```
+
+Öppna http://localhost:8080. Filer fungerar även under GitHub Pages repoundermapp. För personliga marknadsdata: installera `requirements-pages.txt`, sätt de tre hemligheterna i miljön och välj `--source alpaca`. Exporten avvisar okrypterade riktiga data. `--force` hämtar om korrigerad historik eller gör ett uttryckligt byte till demo. Sidan publiceras av workflowen; genererade filer checkas inte in i kodrepot.
+
+Schemat är polling efter dagsstängning, inte en realtidsström eller garanterad exakt leveranstid. GitHub kan fördröja schemalagda körningar. Workflowen underhåller en enkel aktivitetsfil en gång per månad så att GitHub inte stänger av schemat efter 60 dagars inaktivitet. Den använder standard Ubuntu-runners, kortlivade artefakter och en begränsad snapshotcache.
 
 ## Nästa utvecklingssteg
 
@@ -162,6 +192,9 @@ tests/            Beräkning, kausalitet, data och API
 - [Alpaca: Assets](https://docs.alpaca.markets/us/reference/get-v2-assets-1)
 - [Alpaca: Calendar](https://docs.alpaca.markets/us/reference/legacycalendar)
 - [Alpaca: Market Data FAQ](https://docs.alpaca.markets/us/docs/market-data-faq)
+- [GitHub Pages och kostnadsfria publika repos](https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-github-pages)
+- [GitHub Actions schemalagda körningar](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule)
+- [Alpaca: begränsning av vidarepublicering](https://alpaca.markets/support/redistribute-alpaca-api)
 - [Fidelity: MACD](https://www.fidelity.com/learning-center/trading-investing/technical-analysis/technical-indicator-guide/macd)
 - [Fidelity: ATR](https://www.fidelity.com/learning-center/trading-investing/technical-analysis/technical-indicator-guide/atr)
 

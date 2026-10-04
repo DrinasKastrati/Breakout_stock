@@ -13,6 +13,7 @@ function el(tag, text, className) {
 }
 function error(message) { $("#error").textContent = message; $("#error").classList.toggle("hidden", !message); }
 async function api(path, options) {
+  if (window.BreakoutData?.static) return window.BreakoutData.request(path, options);
   const response = await fetch(path, options);
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || "Det gick inte att läsa data.");
@@ -40,6 +41,7 @@ async function refresh() {
     $("#source-badge").textContent = `${metadata.synthetic ? "DEMO" : metadata.source.toUpperCase()} · ${metadata.feed.toUpperCase()} · 1D`;
     $("#demo-notice").classList.toggle("hidden", !metadata.synthetic);
     fillSettings(config);
+    if (window.BreakoutData?.static) $("#settings-status").textContent = "STYRS VIA GITHUB";
     renderDataDetails(metadata);
     renderRows();
     const selected = rows.find(r => r.symbol === state.selected) || rows.find(r => ["breakout", "watch"].includes(r.status)) || rows[0];
@@ -72,6 +74,7 @@ function renderRows() {
 }
 async function select(symbol) {
   state.selected = symbol; renderRows();
+  const dataset = state.data;
   const row = state.data.rows.find(r => r.symbol === symbol);
   $("#chart-symbol").textContent = symbol;
   $("#chart-name").textContent = row.name;
@@ -89,7 +92,7 @@ async function select(symbol) {
   for (const warning of row.warnings || []) reasons.append(el("p", `△ ${warning}`, "warning"));
   state.chart = null; drawChart();
   const chart = await api(`/api/bars?symbol=${encodeURIComponent(symbol)}`);
-  if (state.selected !== symbol) return;
+  if (state.selected !== symbol || state.data !== dataset) return;
   state.chart = chart; drawChart();
   $("#chart-readout").textContent = "Pris / volym / MACD · för pekaren över diagrammet för OHLC.";
 }
@@ -153,6 +156,11 @@ function renderDataDetails(meta) {
   for (const text of [`Källa: ${meta.source}. Feed: ${meta.feed}. Senaste session: ${meta.as_of}.`, ...(meta.notes || [])]) target.append(el("p",text));
   if (meta.sample_limit) target.append(el("p",`Begränsat stickprov: ${meta.sample_limit} av ${meta.discovered_assets} upptäckta aktier.`));
 }
+$("#export-csv").addEventListener("click", event => {
+  if (!window.BreakoutData?.static) return;
+  event.preventDefault();
+  if (state.data) window.BreakoutData.exportCSV(state.data.rows);
+});
 $("#search").addEventListener("input",renderRows);
 $("#status-filter").addEventListener("change",renderRows);
 $("#refresh").addEventListener("click",refresh);
@@ -193,6 +201,11 @@ $("#backtest-form").addEventListener("submit",async event=>{
     const exitLabels={stop:"Stop",stop_gap:"Gap under stop",target:"Mål",time:"Tidsgräns"};
     for(const trade of full.trades.slice(-20).reverse()){const tr=el("tr");for(const text of [trade.symbol,trade.entry_date,trade.exit_date,`$${price(trade.pnl_usd)}`,number(trade.r_multiple),exitLabels[trade.exit_reason]])tr.append(el("td",text));trades.append(tr);}
     if(!full.trades.length){const tr=el("tr");const td=el("td","Inga avslutade affärer i vald period.","empty");td.colSpan=6;tr.append(td);trades.append(tr);}
-  }catch(e){error(e.message);}finally{button.disabled=false;button.textContent="Kör jämförelse";}
+  }catch(e){error(e.message);}finally{button.disabled=false;button.textContent=window.BreakoutData?.static?"Visa senaste jämförelse":"Kör jämförelse";}
 });
 refresh();
+if (window.BreakoutData?.static) setInterval(async () => {
+  if (document.hidden || !state.data) return;
+  try { if (await window.BreakoutData.hasUpdate()) await refresh(); }
+  catch (_) { $("#site-status").textContent = "Ny analys kunde inte kontrolleras. Den visade sessionen gäller fortfarande; försök läsa senaste analys igen."; }
+}, 5 * 60 * 1000);

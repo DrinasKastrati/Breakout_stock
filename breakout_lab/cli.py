@@ -1,6 +1,7 @@
 from pathlib import Path
 import argparse
 import json
+import os
 import sys
 
 from . import demo
@@ -32,10 +33,28 @@ def main(argv=None):
     bt = sub.add_parser("backtest", help="Compare breakout / volume / MACD variants")
     bt.add_argument("--start")
     bt.add_argument("--end")
+    pages = sub.add_parser("build-site", help="Build a static GitHub Pages dashboard")
+    pages.add_argument("--output", default="dist/site")
+    pages.add_argument("--source", choices=("auto", "demo", "alpaca"), default="auto")
+    pages.add_argument("--repository", default="")
+    pages.add_argument("--limit", type=int)
+    pages.add_argument("--years", type=int, default=2)
+    pages.add_argument("--force", action="store_true", help="Re-fetch corrections or intentionally switch to demo")
     args = parser.parse_args(argv)
     try:
         path = Path(args.config)
         config = Config.from_dict(json.loads(path.read_text())) if path.exists() else Config()
+        if args.command == "build-site":
+            from .pages import build_site
+            if args.years < 1 or (args.limit is not None and args.limit < 1):
+                raise ValueError("Limit and years must be positive")
+            result = build_site(config, args.output, args.source, args.repository, args.limit, args.years, args.force)
+            print(json.dumps(result))
+            if os.environ.get("GITHUB_OUTPUT"):
+                with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                    for name, value in result.items():
+                        f.write(f"{name}={str(value).lower() if isinstance(value, bool) else value}\n")
+            return 0
         default_db = "data/alpaca.sqlite" if args.command == "sync" else "data/csv.sqlite" if args.command == "import" else "data/demo.sqlite"
         store = Store(args.db or default_db)
         if args.command == "demo":

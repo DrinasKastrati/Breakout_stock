@@ -4,11 +4,11 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Breakout Lab — aktiescreener</title>
   <meta name="description" content="Undersök dagliga breakouts med volym, MACD och tydliga risknivåer.">
-  <link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script>
+  <link rel="stylesheet" href="./style.css"><script src="./data-client.js" defer></script><script src="./app.js" defer></script>
 </head>
 <body>
   <aside class="sidebar">
-    <a class="brand" href="/" aria-label="Breakout Lab startsida"><span class="brand-mark">↗</span><span>BREAKOUT<span class="brand-sub">LAB / RESEARCH</span></span></a>
+    <a class="brand" href="./" aria-label="Breakout Lab startsida"><span class="brand-mark">↗</span><span>BREAKOUT<span class="brand-sub">LAB / RESEARCH</span></span></a>
     <div class="nav-label">ARBETSYTA</div>
     <nav aria-label="Huvudmeny">
       <button class="nav-button active" data-page="screener" aria-label="Screener" aria-current="page">◉ <span>Screener</span></button>
@@ -16,13 +16,15 @@
       <button class="nav-button" data-page="method" aria-label="Metod och data">≡ <span>Metod & data</span></button>
     </nav>
     <div class="sidebar-note"><span class="tiny-label">STRATEGI 01</span><p>Pris bryter nivån.<br>Volym bekräftar.<br>Risk styr storleken.</p><span class="pill">1D · LONG</span></div>
-    <div class="sidebar-foot">v0.1.0 <span>Research only</span></div>
+    <div class="sidebar-foot">v0.2.0 <span>Research only</span></div>
   </aside>
   <main>
-    <header class="topbar"><span class="breadcrumb">Arbetsyta <span>/</span> <strong id="page-label">Screener</strong></span><span id="source-badge" class="pill">Läser data…</span></header>
+    <header class="topbar"><span class="breadcrumb">Arbetsyta <span>/</span> <strong id="page-label">Screener</strong></span><div class="heading-actions"><button id="lock-site" class="button secondary hidden">Lås data</button><span id="source-badge" class="pill">Läser data…</span></div></header>
     <div id="error" class="error hidden" role="alert"></div>
+    <dialog id="unlock-dialog"><form id="unlock-form"><div class="eyebrow">DIN PERSONLIGA ANALYS</div><h2>Lås upp marknadsdata</h2><p>Data är krypterade. Lösenfrasen används bara i denna webbläsare och sparas tills fliken laddas om.</p><label>Lösenfras<input id="unlock-passphrase" type="password" autocomplete="off" minlength="20" required></label><p id="unlock-error" role="alert"></p><button class="button" type="submit">Lås upp</button></form></dialog>
     <section id="screener-page" class="page">
-      <div class="page-heading"><div><div class="eyebrow">FRÅN UNIVERSUM TILL SETUP</div><h1>Hitta nästa utbrott.</h1><p>Bekräftade signaler och aktier nära motstånd — med en förklaring till varje kandidat.</p></div><div class="heading-actions"><a class="button secondary" href="/api/export">↓ Exportera CSV</a><button id="refresh" class="button">Uppdatera analys</button></div></div>
+      <div class="page-heading"><div><div class="eyebrow">FRÅN UNIVERSUM TILL SETUP</div><h1>Hitta nästa utbrott.</h1><p>Bekräftade signaler och aktier nära motstånd — med en förklaring till varje kandidat.</p></div><div class="heading-actions"><a id="export-csv" class="button secondary" href="/api/export">↓ Exportera CSV</a><button id="refresh" class="button">Uppdatera analys</button></div></div>
+      <div id="site-notice" class="notice hidden"><strong>GITHUB PAGES</strong><span id="site-status"></span></div>
       <div id="demo-notice" class="notice hidden"><strong>DEMODATA</strong><span>Alla aktier och priser är fiktiva. Här kan du undersöka hur strategin fungerar.</span></div>
       <div class="stats">
         <div class="stat"><span>Aktier i dataset</span><strong id="count-all">—</strong><small id="as-of">—</small></div>
@@ -60,6 +62,7 @@
             <div class="checkboxes"><label><input name="require_volume" type="checkbox"> Kräv volym</label><label><input name="require_macd" type="checkbox"> Kräv MACD</label></div>
             <details><summary>Bolagsfilter & kapital</summary><div class="form-grid extra-settings"><label>Kontovärde, USD<input name="account_equity" type="number" min="1" step="1000"></label><label>Max position / konto, %<input name="max_position_fraction" type="number" min="1" max="100" step="1"></label><label>Minsta börsvärde, milj. USD<input name="min_market_cap" type="number" min="0" step="100"></label><label>Rapportspärr, kalenderdagar<input name="earnings_blackout_days" type="number" min="0" step="1"></label><label>Sektorer, kommaseparerade<input name="allowed_sectors" placeholder="Tomt = alla"></label><label>Exkludera tickers<input name="excluded_symbols" placeholder="ABC, XYZ"></label></div><p class="muted">Börsvärde och rapportdatum kräver metadata. 0 stänger av respektive filter. Aktiva filter utesluter aktier som saknar uppgifterna.</p></details>
             <div class="form-actions"><button class="button" type="submit">Spara & analysera</button><span class="muted">Inställningar sparas lokalt.</span></div>
+            <a id="settings-edit" class="button secondary hidden" target="_blank" rel="noopener noreferrer">Ändra strategi på GitHub</a>
           </form>
         </section>
       </div>
@@ -67,14 +70,14 @@
     <section id="backtest-page" class="page hidden">
       <div class="page-heading"><div><div class="eyebrow">TESTA VAD SOM BIDRAR</div><h1>Ger MACD ett bättre urval?</h1><p>Jämför samma breakoutstrategi med och utan volym och MACD.</p></div></div>
       <div class="notice"><strong>FORSKNING</strong><span>Separata affärer per aktie. Resultatet är ingen simulerad portföljavkastning.</span></div>
-      <section class="panel"><div class="panel-heading"><h2>Testintervall</h2><span class="tiny-label">ENTRY VID NÄSTA ÖPPNING</span></div><form id="backtest-form" class="backtest-form"><label>Från signaldatum<input id="backtest-start" type="date"></label><label>Till datum<input id="backtest-end" type="date"></label><button class="button" type="submit" id="backtest-run">Kör jämförelse</button></form><p class="panel-foot">Tidigare historik används för indikatorernas uppvärmning. Testa ett orört intervall efter att reglerna har valts.</p></section>
+      <section class="panel"><div class="panel-heading"><h2>Testintervall</h2><span class="tiny-label">ENTRY VID NÄSTA ÖPPNING</span></div><form id="backtest-form" class="backtest-form"><label>Från signaldatum<input id="backtest-start" type="date"></label><label>Till datum<input id="backtest-end" type="date"></label><button class="button" type="submit" id="backtest-run">Kör jämförelse</button></form><p id="backtest-period-note" class="panel-foot">Tidigare historik används för indikatorernas uppvärmning. Testa ett orört intervall efter att reglerna har valts.</p></section>
       <section class="panel backtest-results"><div class="panel-heading"><h2>Resultat efter kostnader</h2><span class="tiny-label">R = INITIAL RISKENHET</span></div><div class="table-wrap"><table><thead><tr><th>Variant</th><th>Affärer</th><th>Träffandel</th><th>Genomsnitt R</th><th>Profit factor i R</th><th>Öppna</th></tr></thead><tbody id="backtest-body"><tr><td colspan="6" class="empty">Kör ett test för att jämföra varianterna.</td></tr></tbody></table></div><div id="backtest-detail" class="reason-list"></div></section>
       <section class="panel"><div class="panel-heading"><h2>Senaste avslutade affärer</h2></div><div class="table-wrap"><table><thead><tr><th>Aktie</th><th>Entry</th><th>Exit</th><th>Utfall</th><th>R</th><th>Exitorsak</th></tr></thead><tbody id="trades-body"></tbody></table></div></section>
     </section>
     <section id="method-page" class="page hidden">
       <div class="page-heading"><div><div class="eyebrow">SPÅRBART, ENKELT, TESTBART</div><h1>Regler före magkänsla.</h1><p>Så byggs signalen — och vad datan kan berätta.</p></div></div>
       <div class="bottom-grid"><section class="panel prose"><h2>Signalens delar</h2><ol><li><strong>Universum.</strong> Instrumenttyp, historik, kurs och genomsnittlig dollaromsättning. Bolagsfilter används bara om de är aktiva.</li><li><strong>Trend.</strong> Kurs över SMA 50 och SMA 50 högre än för fem candles sedan.</li><li><strong>Bas.</strong> Högsta high minus lägsta low under breakoutperioden, högst inställt antal ATR.</li><li><strong>Breakout.</strong> Stängning över föregående periods högsta high + ATR-buffert. Signalens egen candle ingår inte i nivån.</li><li><strong>Volym.</strong> Signalvolym / tidigare genomsnittsvolym över vald gräns.</li><li><strong>MACD.</strong> EMA 12 minus EMA 26 över signallinjen (EMA 9), med stigande histogram.</li><li><strong>Entry och risk.</strong> Stop under basens botten. Positionen begränsas av riskbudget och kapitalgräns.</li></ol><p>ATR 14 använder Wilders utjämning. Buffertar och avstånd använder föregående candles ATR.</p><p>Relativ styrka mot benchmark visas som information och ingår inte i signalen eller poängen.</p></section>
-        <section class="panel prose"><h2>Datakälla & begränsningar</h2><div id="data-details"></div><p>För liveanalys behövs egna Alpaca-nycklar på servern. Dashboarden läser den senaste synkroniserade datan; ”Uppdatera analys” hämtar inte nya börskurser.</p><p>Dagscandles följer leverantörens 1D-definition. Den aktuella handelsdagen används först efter 20.15 New York-tid. 4H ingår inte i v0.1.</p><h3>Historiska tester</h3><p>Köp simuleras vid nästa öppning med slippage. Om stop och mål träffas inom samma candle räknas stop först. Öppna affärer räknas separat.</p><p>Nuvarande aktieuniversum kan ge överlevnadsbias. Sektor, börsvärde och rapportfilter kan inte användas historiskt utan metadata som var känd vid tillfället.</p><p>Splitjusterade historiska priser ger en normaliserad forskningsserie. Exakt historisk positionsstorlek och orderutförande kräver en motor som hanterar bolagshändelser.</p></section></div>
+        <section class="panel prose"><h2>Datakälla & begränsningar</h2><div id="data-details"></div><p id="data-operation-note">För marknadsanalys behövs egna Alpaca-nycklar på servern. Dashboarden läser den senaste synkroniserade datan; ”Uppdatera analys” hämtar inte nya börskurser.</p><p>Dagscandles följer leverantörens 1D-definition. Den aktuella handelsdagen används först efter 20.15 New York-tid. 4H ingår inte i v0.2.</p><h3>Historiska tester</h3><p>Köp simuleras vid nästa öppning med slippage. Om stop och mål träffas inom samma candle räknas stop först. Öppna affärer räknas separat.</p><p>Nuvarande aktieuniversum kan ge överlevnadsbias. Sektor, börsvärde och rapportfilter kan inte användas historiskt utan metadata som var känd vid tillfället.</p><p>Splitjusterade historiska priser ger en normaliserad forskningsserie. Exakt historisk positionsstorlek och orderutförande kräver en motor som hanterar bolagshändelser.</p></section></div>
     </section>
     <footer>BREAKOUT LAB <span>För analys och strategitest. Inga order skickas.</span></footer>
   </main>
