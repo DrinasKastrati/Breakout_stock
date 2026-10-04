@@ -216,12 +216,12 @@ def save(result, output, passphrase):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--years", type=int, default=2)
+    parser.add_argument("--years", type=int, choices=(2,), default=2)
     parser.add_argument("--capital", type=float, default=100_000)
     parser.add_argument("--output", default="dist/experiments")
     args = parser.parse_args()
-    if not 2 <= args.years <= 3 or not math.isfinite(args.capital) or args.capital <= 0:
-        parser.error("Use 2–3 years and positive finite capital")
+    if not math.isfinite(args.capital) or args.capital <= 0:
+        parser.error("Use positive finite capital")
     from .providers import Alpaca
     from .pages import derive_key
     passphrase = os.environ.get("DASHBOARD_PASSPHRASE", "")
