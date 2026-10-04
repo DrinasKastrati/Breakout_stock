@@ -45,7 +45,10 @@ def drawdown(curve, initial):
 
 
 def simulate_portfolio(histories, signals, config, start, end, sessions, allocation="risk_budget",
-                       *, position_fraction=None, exit_rule="initial"):
+                       *, position_fraction=None, exit_rule="initial", failure_exit=False,
+                       max_positions_limit=None, max_portfolio_risk=None, max_exposure=None,
+                       entry_stop_atr=None, trailing_atr=2, use_target=True,
+                       bar_index=None, exit_event_cache=None, market_exit_dates=None):
     """Shared USD cash account, whole shares, one position per symbol.
 
     Ranking is based only on the prior close: score, relative volume,
@@ -57,8 +60,16 @@ def simulate_portfolio(histories, signals, config, start, end, sessions, allocat
     if allocation == "fixed_fraction" and (position_fraction is None or
             not math.isfinite(position_fraction) or not 0 < position_fraction <= 1):
         raise ValueError("Fixed position fraction must be in (0, 1]")
-    if exit_rule not in ("initial", "macd", "atr_trailing"):
+    if exit_rule not in ("initial", "macd", "atr_trailing", "channel10"):
         raise ValueError("Unsupported exit rule")
+    if max_positions_limit is not None and (type(max_positions_limit) is not int or max_positions_limit < 1):
+        raise ValueError("Position limit must be a positive integer")
+    for value in (max_portfolio_risk, max_exposure):
+        if value is not None and (not math.isfinite(value) or not 0 < value <= 1):
+            raise ValueError("Portfolio limits must be in (0, 1]")
+    for value in (entry_stop_atr, trailing_atr):
+        if value is not None and (not math.isfinite(value) or value <= 0):
+            raise ValueError("ATR multiples must be positive and finite")
     date.fromisoformat(start); date.fromisoformat(end)
     if start > end:
         raise ValueError("Start date must precede end date")
@@ -66,24 +77,31 @@ def simulate_portfolio(histories, signals, config, start, end, sessions, allocat
     if not days:
         raise ValueError("No benchmark sessions in the requested test period")
     symbols = {c["symbol"] for candidates in signals.values() for c in candidates}
-    indexed = {s: {b.date: b for b in histories.get(s, [])} for s in symbols}
+    indexed = ({s: bar_index.get(s, {}) for s in symbols} if bar_index is not None else
+               {s: {b.date: b for b in histories.get(s, [])} for s in symbols})
     # Compute from full warmup history, then use only the current completed close.
     exit_events = {}
     if exit_rule != "initial":
         for symbol in symbols:
-            bars = [b for b in histories.get(symbol, []) if b.date <= end]
+            cache_key = (symbol, exit_rule, trailing_atr)
+            if exit_event_cache is not None and cache_key in exit_event_cache:
+                exit_events[symbol] = exit_event_cache[cache_key]
+                continue
+            bars = histories.get(symbol, [])
             ind = calculate(bars)
             events = {}
             for i, b in enumerate(bars):
-                if not start <= b.date <= end:
-                    continue
                 if exit_rule == "macd":
                     if i and ind["signal"][i-1] is not None and ind["signal"][i] is not None:
                         events[b.date] = (ind["macd"][i-1] >= ind["signal"][i-1]
                                           and ind["macd"][i] < ind["signal"][i])
-                elif ind["atr"][i] is not None:
-                    events[b.date] = b.close - 2 * ind["atr"][i]
+                elif exit_rule == "channel10" and i >= 10:
+                    events[b.date] = b.close < min(x.low for x in bars[i-10:i])
+                elif exit_rule == "atr_trailing" and ind["atr"][i] is not None:
+                    events[b.date] = b.close - trailing_atr * ind["atr"][i]
             exit_events[symbol] = events
+            if exit_event_cache is not None:
+                exit_event_cache[cache_key] = events
     initial, cash = config.account_equity, config.account_equity
     slip, commission = config.slippage_bps / 10_000, config.commission_per_share
     positions, trades, curve = {}, [], []
@@ -119,11 +137,13 @@ def simulate_portfolio(histories, signals, config, start, end, sessions, allocat
             p["holding_bars"] += 1
             if b.open <= p["stop"]:
                 close(symbol, b.open, day, "stop_gap")
-            elif b.open >= p["target"]:
+            elif p["target"] is not None and b.open >= p["target"]:
                 # Conservative: do not credit a better-than-target gap fill.
                 close(symbol, p["target"], day, "target_gap")
             elif p.get("pending_macd_exit"):
                 close(symbol, b.open, day, "macd_next_open")
+            elif p.get("pending_signal_exit"):
+                close(symbol, b.open, day, p["pending_signal_exit"])
 
         ranked = sorted(pending, key=lambda c: (-c["score"], -c["relative_volume"],
                                                 c["extension_atr"], c["symbol"]))
@@ -135,12 +155,17 @@ def simulate_portfolio(histories, signals, config, start, end, sessions, allocat
             if symbol in positions:
                 skipped["already_held"] += 1
                 continue
+            if max_positions_limit is not None and len(positions) >= max_positions_limit:
+                skipped["position_limit"] += 1
+                continue
             b = indexed[symbol].get(day)
             if b is None:
                 # No carry-forward to an unobservable future resumption.
                 skipped["missing_next_session"] += 1
                 continue
             entry, stop = b.open * (1 + slip), c["stop"]
+            if entry_stop_atr is not None:
+                stop = max(stop, entry - entry_stop_atr * c["atr"])
             if entry <= stop or entry > c["resistance"] + config.max_extension_atr * c["atr"]:
                 skipped["entry_gap"] += 1
                 continue
@@ -154,6 +179,16 @@ def simulate_portfolio(histories, signals, config, start, end, sessions, allocat
             else:
                 shares = min(math.floor(equity * config.risk_fraction / (entry - stop)),
                              math.floor(equity * config.max_position_fraction / entry), affordable)
+            if max_portfolio_risk is not None:
+                outstanding = sum(p["shares"] * max(0.0,
+                    (indexed[s][day].open if day in indexed[s] else p["mark"]) - p["stop"])
+                    for s, p in positions.items())
+                remaining = max(0.0, equity * max_portfolio_risk - outstanding)
+                shares = min(shares, math.floor(remaining / (entry - stop)))
+            if max_exposure is not None:
+                invested_open = equity - cash
+                remaining = max(0.0, equity * max_exposure - invested_open)
+                shares = min(shares, math.floor(remaining / (entry + commission)))
             if shares < 1:
                 skipped["cash_or_size"] += 1
                 continue
@@ -167,8 +202,10 @@ def simulate_portfolio(histories, signals, config, start, end, sessions, allocat
             positions[symbol] = {"symbol": symbol, "signal_date": c["date"],
                                  "entry_date": day, "entry": entry, "shares": shares,
                                  "entry_fee": fee, "stop": stop,
-                                 "target": entry + config.reward_risk * (entry - stop),
+                                 "target": entry + config.reward_risk * (entry - stop) if use_target else None,
                                  "holding_bars": 1, "mark": b.open}
+            if failure_exit:
+                positions[symbol]["breakout_level"] = c["resistance"] + config.breakout_atr_buffer * c["atr"]
             if exit_rule == "atr_trailing":
                 positions[symbol]["initial_stop"] = stop
         max_positions = max(max_positions, len(positions))
@@ -184,7 +221,7 @@ def simulate_portfolio(histories, signals, config, start, end, sessions, allocat
             p = positions[symbol]
             if b.low <= p["stop"]:
                 close(symbol, p["stop"], day, "stop")
-            elif b.high >= p["target"]:
+            elif p["target"] is not None and b.high >= p["target"]:
                 close(symbol, p["target"], day, "target")
             elif p["holding_bars"] >= config.max_holding_bars:
                 close(symbol, b.close, day, "time")
@@ -196,6 +233,12 @@ def simulate_portfolio(histories, signals, config, start, end, sessions, allocat
                 elif exit_rule == "atr_trailing" and event is not None:
                     # Ratchet after the close; never retroactively stop on today's low.
                     p["stop"] = max(p["stop"], event)
+                elif exit_rule == "channel10" and event:
+                    p["pending_signal_exit"] = "channel10_next_open"
+                if failure_exit and b.close < p["breakout_level"]:
+                    p["pending_signal_exit"] = "failed_breakout_next_open"
+                if market_exit_dates is not None and market_exit_dates.get(day, False):
+                    p["pending_signal_exit"] = "market_next_open"
         invested = sum(p["shares"] * p["mark"] for p in positions.values())
         equity = cash + invested
         curve.append({"date": day, "equity_usd": equity, "cash_usd": cash,
