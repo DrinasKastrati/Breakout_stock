@@ -11,10 +11,11 @@ import re
 import shutil
 
 from . import demo
-from .backtest import compare
+from .backtest import compare, compare_metro
 from .engine import scan
 from .indicators import calculate
 from .providers import Alpaca
+from .strategies import metro_section
 
 STATIC = Path(__file__).parent / "static"
 ITERATIONS = 600_000
@@ -41,7 +42,7 @@ def decrypt_file(root, manifest, path, passphrase):
     return json.loads(AESGCM(key).decrypt(raw[:12], raw[12:], path.encode()))
 
 
-def export_site(assets, histories, metadata, config, output, passphrase=None, repository=""):
+def export_site(assets, histories, metadata, config, output, passphrase=None, repository="", context_builder=None):
     """Build in a temporary directory; leave the last good site intact on any failure."""
     if type(metadata.get("synthetic")) is not bool:
         raise ValueError("Dataset must explicitly identify synthetic or real data")
@@ -72,7 +73,8 @@ def export_site(assets, histories, metadata, config, output, passphrase=None, re
                                          for k in ("sma50", "macd", "signal", "histogram")}}
     chart_ids = {a.symbol: "charts/" + sha256(a.symbol.encode()).hexdigest()[:24] for a in assets}
     payloads["scan"] = {"rows": rows, "counts": counts, "metadata": meta, "config": config.to_dict(),
-                        "chart_ids": chart_ids}
+                        "chart_ids": chart_ids,
+                        "strategies": {"metro": metro_section(assets, histories, config, metadata, context_builder)}}
     try:
         variants = compare(assets, histories, config, start, metadata["as_of"])
         # Summary covers every trade; only the latest 100 details are sent to the browser.
@@ -81,6 +83,15 @@ def export_site(assets, histories, metadata, config, output, passphrase=None, re
         payloads["backtest"] = {"variants": variants, "metadata": meta, "start": start, "end": metadata["as_of"]}
     except ValueError as error:
         payloads["backtest"] = {"error": str(error), "start": start, "end": metadata["as_of"]}
+    try:
+        metro_variants = compare_metro(assets, histories, config, start, metadata["as_of"],
+                                       metadata.get("benchmark_symbol", "SPY"))
+        for variant in metro_variants:
+            variant["trades"] = variant["trades"][-100:]
+        metro_backtest = {"variants": metro_variants}
+    except ValueError as error:
+        metro_backtest = {"error": str(error)}
+    payloads["backtest"]["strategies"] = {"metro": metro_backtest}
     digest = sha256(json_bytes({"schema": SCHEMA, "repository": repository, "encrypted": encrypted}))
     digest.update(static_hash().encode())
     for path, value in sorted(payloads.items()):

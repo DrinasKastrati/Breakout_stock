@@ -109,7 +109,10 @@
       return read(site.manifest.prefix + id + site.manifest.suffix);
     }
     if (url.pathname === "/api/backtest") {
-      const result = await read(site.manifest.backtest);
+      const all = await read(site.manifest.backtest);
+      const strategy = url.searchParams.get("strategy") || "breakout";
+      const result = strategy === "breakout" ? all : all.strategies?.[strategy];
+      if (!result) throw new Error("Backtest saknas för vald strategi.");
       if (result.error) throw new Error(result.error);
       return result;
     }
@@ -119,8 +122,8 @@
     if (!site.manifest || (site.manifest.mode === "encrypted" && !site.key)) return false;
     return (await getJSON("manifest.json")).version !== site.manifest.version;
   }
-  function exportCSV(rows) {
-    const columns = ["symbol", "date", "status", "score", "close", "resistance", "relative_volume", "entry_reference", "stop", "target", "shares", "risk_usd"];
+  const BREAKOUT_COLUMNS = ["symbol", "date", "status", "score", "close", "resistance", "relative_volume", "entry_reference", "stop", "target", "shares", "risk_usd"];
+  function exportCSV(rows, columns = BREAKOUT_COLUMNS, filename = "breakout-scan.csv") {
     const cell = value => {
       let text = value === undefined || value === null ? "" : String(value);
       if (typeof value === "string" && /^[=+\-@]/.test(text)) text = "'" + text;
@@ -128,7 +131,7 @@
     };
     const csv = "\ufeff" + [columns.join(","), ...rows.map(row => columns.map(k => cell(row[k])).join(","))].join("\r\n");
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-    const link = document.createElement("a"); link.href = url; link.download = "breakout-scan.csv"; link.click();
+    const link = document.createElement("a"); link.href = url; link.download = filename; link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   window.BreakoutData = { static: isStatic, request, hasUpdate, exportCSV, crypto: { deriveKey, decryptJSON } };

@@ -7,12 +7,14 @@ import io
 import json
 import threading
 
-from .backtest import compare
+from .backtest import compare, compare_metro
 from .engine import scan
 from .indicators import calculate
 from .models import Config
+from .strategies import METRO_CSV_COLUMNS, metro_section
 
 STATIC = Path(__file__).parent / "static"
+EXPORT_COLUMNS = ["symbol", "date", "status", "score", "close", "resistance", "relative_volume", "entry_reference", "stop", "target", "shares", "risk_usd"]
 
 
 class Application:
@@ -31,7 +33,26 @@ class Application:
         benchmark = {b.date: b.close for b in histories.get(meta.get("benchmark_symbol", "SPY"), [])}
         rows = scan(assets, histories, config, benchmark, meta.get("as_of"))
         counts = {status: sum(r["status"] == status for r in rows) for status in ("breakout", "watch", "extended", "inactive", "excluded")}
-        return {"rows": rows, "counts": counts, "metadata": meta, "config": config.to_dict()}
+        return {"rows": rows, "counts": counts, "metadata": meta, "config": config.to_dict(),
+                "strategies": {"metro": metro_section(assets, histories, config, meta)}}
+
+    def backtest(self, strategy="breakout", start=None, end=None):
+        assets, histories, meta, config = self.snapshot()
+        if strategy == "breakout":
+            variants = compare(assets, histories, config, start, end)
+        elif strategy == "metro":
+            variants = compare_metro(assets, histories, config, start, end, meta.get("benchmark_symbol", "SPY"))
+        else:
+            raise ValueError("Unknown strategy")
+        return {"variants": variants, "metadata": meta}
+
+    def export(self, strategy="breakout"):
+        data = self.scan()
+        if strategy == "breakout":
+            return EXPORT_COLUMNS, data["rows"], "breakout-scan.csv"
+        if strategy == "metro":
+            return METRO_CSV_COLUMNS, data["strategies"]["metro"]["rows"], "metro-scan.csv"
+        raise ValueError("Unknown strategy")
 
     def update_config(self, changes):
         with self.lock:
@@ -98,25 +119,24 @@ def handler(app):
                     self.send_json({"symbol": symbol, "bars": [asdict(b) for b in bars[-100:]],
                                     "indicators": {k: v[-100:] for k, v in ind.items()}})
                 elif parsed.path == "/api/backtest":
-                    assets, histories, meta, config = app.snapshot()
                     start, end = params.get("start", [None])[0], params.get("end", [None])[0]
                     from datetime import date
                     for value in (start, end):
                         if value:
                             date.fromisoformat(value)
-                    self.send_json({"variants": compare(assets, histories, config, start, end), "metadata": meta})
+                    self.send_json(app.backtest(params.get("strategy", ["breakout"])[0], start, end))
                 elif parsed.path == "/api/export":
                     buffer = io.StringIO(newline="")
-                    columns = ["symbol", "date", "status", "score", "close", "resistance", "relative_volume", "entry_reference", "stop", "target", "shares", "risk_usd"]
+                    columns, rows, filename = app.export(params.get("strategy", ["breakout"])[0])
                     writer = csv.DictWriter(buffer, columns, extrasaction="ignore")
                     writer.writeheader()
-                    for row in app.scan()["rows"]:
+                    for row in rows:
                         clean = {k: ("'"+v if isinstance(v, str) and v.startswith(("=", "+", "-", "@")) else v) for k, v in row.items()}
                         writer.writerow(clean)
                     raw = buffer.getvalue().encode("utf-8-sig")
                     self.send_response(200)
                     self.send_header("Content-Type", "text/csv; charset=utf-8")
-                    self.send_header("Content-Disposition", 'attachment; filename="breakout-scan.csv"')
+                    self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
                     self.send_header("Content-Length", str(len(raw)))
                     self.end_headers()
                     self.wfile.write(raw)

@@ -5,9 +5,10 @@ import os
 import sys
 
 from . import demo
-from .backtest import compare
+from .backtest import compare, compare_metro
 from .engine import scan
 from .models import Config
+from .strategies import metro_section
 from .providers import Alpaca, import_csv
 from .server import serve
 from .storage import Store
@@ -29,8 +30,10 @@ def main(argv=None):
     importer = sub.add_parser("import", help="Import finalized daily OHLCV CSV")
     importer.add_argument("csv")
     importer.add_argument("--metadata", required=True)
-    sub.add_parser("scan", help="Print current scan as JSON")
-    bt = sub.add_parser("backtest", help="Compare breakout / volume / MACD variants")
+    scan_parser = sub.add_parser("scan", help="Print current scan as JSON")
+    scan_parser.add_argument("--strategy", choices=("breakout", "metro"), default="breakout")
+    bt = sub.add_parser("backtest", help="Compare breakout / volume / MACD variants, or Metro variants")
+    bt.add_argument("--strategy", choices=("breakout", "metro"), default="breakout")
     bt.add_argument("--start")
     bt.add_argument("--end")
     pages = sub.add_parser("build-site", help="Build a static GitHub Pages dashboard")
@@ -78,9 +81,15 @@ def main(argv=None):
             assets, histories, metadata = store.load()
             if not assets:
                 raise ValueError("No dataset. Run demo, sync or import first.")
-            if args.command == "scan":
+            if args.command == "scan" and args.strategy == "metro":
+                section = metro_section(assets, histories, config, metadata)
+                data = {"metadata": metadata, "regime": section["regime"], "rows": section["rows"]}
+            elif args.command == "scan":
                 benchmark = {b.date: b.close for b in histories.get(metadata.get("benchmark_symbol", "SPY"), [])}
                 data = {"metadata": metadata, "rows": scan(assets, histories, config, benchmark, metadata.get("as_of"))}
+            elif args.strategy == "metro":
+                data = {"metadata": metadata, "variants": compare_metro(assets, histories, config, args.start, args.end,
+                                                                        metadata.get("benchmark_symbol", "SPY"))}
             else:
                 data = {"metadata": metadata, "variants": compare(assets, histories, config, args.start, args.end)}
             print(json.dumps(data, ensure_ascii=False, indent=2, allow_nan=False))
