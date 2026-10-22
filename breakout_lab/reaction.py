@@ -37,11 +37,15 @@ def day_reaction(bars, index_bars, day):
     return {"day": day, "excess": excess, "rvol": rvol, "label": label}
 
 
-def symbol_reactions(articles, bars, index_bars):
+def symbol_reactions(articles, bars, index_bars, per_day=5):
     sessions = [b.date for b in bars]
-    enriched = []
+    enriched, per = [], {}
     for article in articles:
         day = reaction_day(article["created_at"], sessions)
+        # Cap per reaction day, so after-close chatter cannot hide earlier sessions.
+        per[day] = per.get(day, 0) + 1
+        if per[day] > per_day:
+            continue
         enriched.append({**article, "reaction_day": day, "reaction": day_reaction(bars, index_bars, day) if day else None})
     clear = [a["reaction"] for a in enriched if a["reaction"] and a["reaction"]["label"] != "none"]
     summary = max(clear, key=lambda r: r["day"]) if clear else {"label": "none"}

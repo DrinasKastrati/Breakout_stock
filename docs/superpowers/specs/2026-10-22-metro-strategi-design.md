@@ -164,8 +164,9 @@ Varje rad får mänskliga orsaker, som breakouten (`reasons`), t.ex. "R/R 1,6 un
 - **Kortlista**: alla `köp` plus `bevaka` med bullish trigger, sorterade på R/R, högst
   `shortlist_size = 20`.
 - **Nyheter**: Alpaca News API (`GET /v1beta1/news`, `symbols`, `start`, `limit`, Benzinga-källa),
-  senaste 3 handelsdagarna, rubrik + sammanfattning. **Overifierat**: dokumentationen säger inte om
-  nyhets-API:t ingår i Basic. Byggaren testar med ett anrop först. Fungerar det inte visas
+  senaste 3 handelsdagarna, rubrik + sammanfattning. **Verifierat 2026-10-22** med ägarens nycklar.
+  **Rättelse 2026-10-22:** "5 per aktie" visade bara senaste dygnet för stora bolag; nu ett anrop per
+  aktie och högst 5 artiklar per reaktionsdag. Fungerar anropet inte visas
   "Nyheter ej tillgängliga" och resten av bygget påverkas inte.
 - **Ägarens beslut (2026-10-22): inga betal-API:er** (ingen Anthropic eller annan LLM-tjänst).
   Sentiment per aktie = **marknadens reaktion på nyheten**, mekaniskt:

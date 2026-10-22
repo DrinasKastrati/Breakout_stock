@@ -52,7 +52,7 @@ Rättelse efter granskning 2026-10-22: tidigare kunde ett brott under stöd visa
 
 För kortlistan (Köp och utlösta Bevaka, högst `shortlist_size` = 20, sorterade på R/R) hämtas Alpaca-nyheter för cirka `news_days` = 3 handelsdagar. Varje artikels reaktionsdag är sessionen vars stängning först kommer efter publiceringen (före 16.00 New York-tid samma dag, annars nästa session). Positivt mottagen: aktien minst +2 % mot index och minst 1,5 × snittvolymen för 20 sessioner; negativt mottagen spegelvänt; annars ingen tydlig reaktion. Trösklarna ligger i koden (`breakout_lab/reaction.py`) och är inga inställningar.
 
-Det mäter marknadens reaktion, inte textens ton, och används inte i statusen. Varje dags reaktion per kortlisteaktie loggas krypterat så att sambandet kan mätas framåt. Om Alpaca Basic ger tillgång till nyhets-API:t är **inte verifierat**; utan tillgång visas "Nyheter ej tillgängliga".
+Det mäter marknadens reaktion, inte textens ton, och används inte i statusen. Varje dags reaktion per kortlisteaktie loggas krypterat så att sambandet kan mätas framåt. Nyheter hämtas med ett anrop per aktie (högst 4 sidor à 50) och högst 5 artiklar sparas per reaktionsdag, så att många artiklar efter stängning inte döljer tidigare sessioner. Nyhets-API:t fungerar med ägarens Alpaca-nycklar (provkört 2026-10-22). Fallerar anropet visas "Nyheter ej tillgängliga".
 
 Marknadsberättelsen är avsnittet "Marknadsöversikt" ur Vecko_agents senaste scout-rapport (högst 3 kalenderdagar gammal). Knappen "Djupanalys i Vecko_agent" öppnar ett förifyllt issue `analys: TICKER` i Vecko_agents nyckellösa kö. Inga betal-API:er används.
 

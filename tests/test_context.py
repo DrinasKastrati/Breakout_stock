@@ -7,6 +7,7 @@ import unittest
 from breakout_lab.context import build_context, merge_log, scout_narrative, shortlist
 from breakout_lab.models import Bar, MetroConfig
 from breakout_lab.providers import Alpaca
+from breakout_lab.reaction import symbol_reactions
 
 AS_OF = "2026-10-21"
 REPORT = "# Scout\n\nIntro\n\n## Marknadsöversikt\nS&P 500 steg.\nFed höll räntan.\n\n## Case\nNVDA\n"
@@ -127,27 +128,56 @@ class Log(unittest.TestCase):
                          [("2026-10-21", "A", "buy"), ("2026-10-21", "B", "buy")])
 
 
+def news_client():
+    with patch.dict("os.environ", {"ALPACA_API_KEY": "test", "ALPACA_API_SECRET": "test"}):
+        return Alpaca()
+
+
+def article(n, symbols, created="2026-10-20T14:00:00Z"):
+    return {"id": n, "headline": f"h{n}", "summary": "s", "created_at": created,
+            "source": "benzinga", "url": None, "symbols": symbols, "content": "x"}
+
+
 class AlpacaNews(unittest.TestCase):
-    def test_paginates_maps_symbols_and_caps_per_symbol(self):
-        with patch.dict("os.environ", {"ALPACA_API_KEY": "test", "ALPACA_API_SECRET": "test"}):
-            client = Alpaca()
-        article = lambda n, symbols: {"id": n, "headline": f"h{n}", "summary": "s", "created_at": "2026-10-20T14:00:00Z",
-                                      "source": "benzinga", "url": None, "symbols": symbols, "content": "x"}
-        pages = [{"news": [article(n, ["AAA", "ZZZ"]) for n in range(4)], "next_page_token": "p2"},
-                 {"news": [article(n, ["AAA", "BBB"]) for n in range(4, 8)], "next_page_token": None}]
-        calls = []
+    def test_requests_each_symbol_separately(self):
+        client, calls = news_client(), []
 
         def get(host, route, params):
             calls.append((route, dict(params)))
-            return pages.pop(0)
+            return {"news": [article(len(calls), [params["symbols"], "ZZZ"])], "next_page_token": None}
         client.get = get
         news = client.news(["AAA", "BBB"], "2026-10-16", "2026-10-22")
-        self.assertEqual(len(news["AAA"]), 5)
-        self.assertEqual(len(news["BBB"]), 4)
+        self.assertEqual([c[1]["symbols"] for c in calls], ["AAA", "BBB"])
+        self.assertEqual(calls[0][0], "/v1beta1/news")
+        self.assertEqual((len(news["AAA"]), len(news["BBB"])), (1, 1))
         self.assertNotIn("ZZZ", news)
         self.assertEqual(set(news["AAA"][0]), {"headline", "summary", "created_at", "source", "url"})
-        self.assertEqual(calls[0][0], "/v1beta1/news")
-        self.assertEqual(calls[1][1]["page_token"], "p2")
+
+    def test_paginates_up_to_four_pages_per_symbol(self):
+        client, calls = news_client(), []
+
+        def get(host, route, params):
+            calls.append(dict(params))
+            return {"news": [article(n, ["AAA"]) for n in range(50)], "next_page_token": f"p{len(calls)}"}
+        client.get = get
+        news = client.news(["AAA"], "2026-10-16", "2026-10-22")
+        self.assertEqual(len(calls), 4)
+        self.assertEqual(calls[1]["page_token"], "p1")
+        self.assertEqual(len(news["AAA"]), 200)
+
+
+class PerDayCap(unittest.TestCase):
+    def test_keeps_five_articles_per_reaction_day(self):
+        from test_reaction import history
+        bars, index = history(103, 2000)
+        last, earlier = bars[-1].date, bars[-3].date
+        articles = ([{"headline": f"new{n}", "created_at": f"{last}T22:00:00Z"} for n in range(7)] +
+                    [{"headline": f"day{n}", "created_at": f"{last}T14:00:00Z"} for n in range(7)] +
+                    [{"headline": "old", "created_at": f"{earlier}T14:00:00Z"}])
+        r = symbol_reactions(articles, bars, index)
+        days = [a["reaction_day"] for a in r["articles"]]
+        self.assertEqual((days.count(None), days.count(last), days.count(earlier)), (5, 5, 1))
+        self.assertEqual(r["summary"]["day"], last)
 
 
 if __name__ == "__main__":

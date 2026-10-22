@@ -126,7 +126,7 @@ Reglaget högst upp på sidan växlar mellan **Breakout** och **Metro** (en tred
 
 **Metro** bygger stöd och motstånd ur bekräftade swing-pivåer, köper först vid stängning över triggern med minst 2:1 i risk/reward, och nedgraderar köp till Bevaka när marknadsläget är Risk-off (SPY under SMA 200 och färre än 40 % av aktierna över SMA 50). Planpanelen följer fem steg: makro & sentiment, nivåer, scenarier, risk/reward, slutsats. Regler: [docs/strategy-metro.md](docs/strategy-metro.md).
 
-För Metros kortlista visas Alpaca-nyheter med marknadens reaktion (minst ±2 % mot index och 1,5× volym). Reaktionen styr inte signalen. Om Alpaca Basic omfattar nyhets-API:t är inte verifierat; annars står "Nyheter ej tillgängliga". Marknadsberättelsen hämtas från Vecko_agents scout-rapport, och knappen "Djupanalys i Vecko_agent" köar en analys där. Inga betal-API:er används och inga nya hemligheter behövs.
+För Metros kortlista visas Alpaca-nyheter med marknadens reaktion (minst ±2 % mot index och 1,5× volym). Reaktionen styr inte signalen. Nyhets-API:t fungerar med samma Alpaca-nycklar som kursdatan (provkört 2026-10-22); fallerar det står "Nyheter ej tillgängliga". Marknadsberättelsen hämtas från Vecko_agents scout-rapport, och knappen "Djupanalys i Vecko_agent" köar en analys där. Inga betal-API:er används och inga nya hemligheter behövs.
 
 Kommandoraden: `python -m breakout_lab scan --strategy metro` och `python -m breakout_lab backtest --strategy metro`.
 
