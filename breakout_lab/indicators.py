@@ -39,4 +39,4 @@ def calculate(bars):
         atr[13] = sum(true_range[:14]) / 14
         for i in range(14, len(bars)):
             atr[i] = (atr[i-1] * 13 + true_range[i]) / 14
-    return {"sma50": ma50, "atr": atr, "macd": macd, "signal": signal, "histogram": histogram}
+    return {"sma50": ma50, "sma200": sma(closes, 200), "atr": atr, "macd": macd, "signal": signal, "histogram": histogram}
