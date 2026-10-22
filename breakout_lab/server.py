@@ -140,7 +140,7 @@ def handler(app):
                     self.send_header("Content-Length", str(len(raw)))
                     self.end_headers()
                     self.wfile.write(raw)
-                elif parsed.path in ("/", "/index.html", "/app.js", "/data-client.js", "/style.css"):
+                elif parsed.path in ("/", "/index.html", "/app.js", "/data-client.js", "/strategies.js", "/style.css"):
                     super().do_GET()
                 else:
                     self.send_json({"error": "Not found"}, 404)
@@ -153,7 +153,7 @@ def handler(app):
         def do_HEAD(self):
             if not self.safe_request():
                 return
-            if urlparse(self.path).path not in ("/", "/index.html", "/app.js", "/data-client.js", "/style.css"):
+            if urlparse(self.path).path not in ("/", "/index.html", "/app.js", "/data-client.js", "/strategies.js", "/style.css"):
                 self.send_error(404)
                 return
             super().do_HEAD()
