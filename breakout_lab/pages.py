@@ -12,6 +12,7 @@ import shutil
 
 from . import demo
 from .backtest import compare, compare_metro
+from .context import build_context
 from .engine import scan
 from .indicators import calculate
 from .providers import Alpaca
@@ -40,6 +41,18 @@ def decrypt_file(root, manifest, path, passphrase):
     key = derive_key(passphrase, b64decode(manifest["salt"]))
     raw = (Path(root) / path).read_bytes()
     return json.loads(AESGCM(key).decrypt(raw[:12], raw[12:], path.encode()))
+
+
+def previous_log(output, passphrase):
+    """Carry the encrypted reaction log forward; a lost or unreadable snapshot restarts it."""
+    path = Path(output) / "manifest.json"
+    if not path.exists():
+        return [], None
+    try:
+        old = json.loads(path.read_text())
+        return decrypt_file(output, old, old["scan"], passphrase)["strategies"]["metro"]["context"]["log"], None
+    except Exception:
+        return [], "Reaktionsloggen startade om (föregående snapshot kunde inte läsas)."
 
 
 def export_site(assets, histories, metadata, config, output, passphrase=None, repository="", context_builder=None):
@@ -204,15 +217,24 @@ def build_site(config, output, source="auto", repository="", limit=None, years=2
         current = sum(bool(histories.get(a.symbol)) and histories[a.symbol][-1].date == metadata["as_of"] for a in assets)
         if not spy or spy[-1].date != metadata["as_of"] or current < len(assets) * 0.9:
             raise ValueError("Latest session is incomplete in the response; retaining the last published site")
+        log, note = previous_log(output, passphrase)
+        if note:
+            metadata = {**metadata, "notes": [*metadata.get("notes", []), note]}
+        as_of = metadata["as_of"]
+        context_builder = lambda rows, regime: build_context(rows, as_of, config.metro, histories, "SPY",
+                                                             news_client=client, previous_log=log)
     elif source == "demo":
         if (Path(output) / "manifest.json").exists():
             old = json.loads((Path(output) / "manifest.json").read_text())
             if old.get("mode") == "encrypted" and not force:
                 raise ValueError("Refusing to replace real data with demo; use --force for an intentional reset")
         assets, histories, metadata = demo.dataset()
+        as_of, benchmark = metadata["as_of"], metadata["benchmark_symbol"]
+        context_builder = lambda rows, regime: build_context(rows, as_of, config.metro, histories, benchmark,
+                                                             news_client=None, opener=None)
     else:
         raise ValueError("Unsupported site data source")
-    result = export_site(assets, histories, metadata, config, output, passphrase, repository)
+    result = export_site(assets, histories, metadata, config, output, passphrase, repository, context_builder)
     if result["changed"]:
         path = Path(output) / "manifest.json"
         manifest = json.loads(path.read_text())

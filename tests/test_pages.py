@@ -144,7 +144,10 @@ class Pages(unittest.TestCase):
         real = {**self.meta, "source":"alpaca", "synthetic":False, "benchmark_symbol":"SPY"}
         env = {"ALPACA_API_KEY":"test", "ALPACA_API_SECRET":"test", "DASHBOARD_PASSPHRASE":PHRASE}
         with patch.dict(os.environ, env), patch.object(Alpaca, "dataset", return_value=(self.assets,self.histories,real)) as provider:
-            with patch.object(Alpaca, "completed_session", return_value=real["as_of"]):
+            # Metro context must not reach the network from tests.
+            with patch.object(Alpaca, "completed_session", return_value=real["as_of"]), \
+                 patch.object(Alpaca, "news", return_value={}), \
+                 patch("breakout_lab.context.scout_narrative", return_value=None):
                 first = build_site(Config(), self.output, "alpaca")
                 second = build_site(Config(), self.output, "alpaca")
                 self.assertTrue(first["changed"])

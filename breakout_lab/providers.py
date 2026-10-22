@@ -166,6 +166,26 @@ class Alpaca:
             histories[symbol] = sorted(history, key=lambda b: b.date)
         return histories
 
+    def news(self, symbols, start, end):
+        """Recent headlines per symbol; at most five per symbol and five pages per call."""
+        result = {s: [] for s in symbols}
+        token, seen = None, set()
+        for _ in range(5):
+            params = {"symbols": ",".join(symbols), "start": start, "end": end, "limit": 50, "sort": "desc"}
+            if token:
+                params["page_token"] = token
+            page = self.get("https://data.alpaca.markets", "/v1beta1/news", params)
+            for article in page.get("news") or []:
+                item = {k: article.get(k) for k in ("headline", "summary", "created_at", "source", "url")}
+                for symbol in article.get("symbols") or []:
+                    if symbol in result and len(result[symbol]) < 5:
+                        result[symbol].append(item)
+            token = page.get("next_page_token")
+            if not token or token in seen:
+                break
+            seen.add(token)
+        return result
+
     def completed_session(self, now=None):
         now = now or datetime.now(timezone.utc)
         local_day = now.astimezone(NY).date()
