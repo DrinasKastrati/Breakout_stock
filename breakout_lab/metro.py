@@ -63,15 +63,19 @@ def evaluate_metro(asset, bars, config, index=None, indicators=None, pivots=None
         if t2 <= t1:
             t2 = None
         stop = r1 - m.stop_atr * atr
-        if close > stop:
-            rr = (t1 - close) / (close - stop)
         bear_t1 = s2 if s2 is not None else s1 - move
         bear_t2 = s1 - 2 * move
     bull = levels_ok and close > trigger and previous <= r1 and trend != "bearish"
     bear = levels_ok and close < bear_trigger and previous >= s1
+    if levels_ok:
+        # Untriggered rows show the R/R planned at the trigger; a close near stop would inflate it.
+        entry = close if bull else trigger
+        if entry > stop:
+            rr = (t1 - entry) / (entry - stop)
     rr_ok = rr is not None and rr >= m.min_rr
     regime_ok = not m.use_regime or regime["label"] != "risk_off"
-    near_r1 = levels_ok and trend != "bearish" and r1 - m.watch_distance_atr * atr <= close <= trigger
+    # A broken support is a sell even when resistance is within the watch distance.
+    near_r1 = levels_ok and not bear and trend != "bearish" and r1 - m.watch_distance_atr * atr <= close <= trigger
     if bull and rr_ok and regime_ok:
         status = "buy"
     elif bull or near_r1:

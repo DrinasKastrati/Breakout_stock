@@ -104,7 +104,9 @@ Alla parametrar nedan är förval som fastställs i och med denna design. Indika
   annars `R1 + 2 × (R1 − S1)`.
 - **Stop (invalidering)** = `R1 − 1.0 × ATR_prev`: brottet är felaktigt om kursen faller tillbaka
   klart under nivån.
-- **R/R** = `(T1 − close[t]) / (close[t] − stop)`. Krav: `≥ min_rr = 2.0`.
+- **R/R** = `(T1 − close[t]) / (close[t] − stop)` vid utlöst bullish trigger. Krav: `≥ min_rr = 2.0`.
+  **Rättelse 2026-10-22 (granskning):** utan utlöst trigger visas planerad R/R vid triggern,
+  `(T1 − trigger) / (trigger − stop)`; räknat från dagens stängning blev värdet godtyckligt stort nära stop.
 - **Bearish trigger**: `close[t] < S1 − 0.1 × ATR_prev` och `close[t-1] ≥ S1`. Nedsidesmål
   S2 respektive `S1 − (R1 − S1)` visas, men handlas inte.
 - **Sidledes**: inget brott, kurs mellan S1 och R1.
@@ -128,7 +130,7 @@ Statusar, i prioritetsordning:
 |---|---|
 | `filtrerad` | Universum-, historik- eller likviditetsfilter (samma som breakout) |
 | `köp` | Bullish trigger + R/R ≥ 2 + läge ≠ Risk-off |
-| `bevaka` | Bullish trigger men R/R < 2 eller Risk-off; **eller** trend ≠ bearish och `close` inom 1 ATR under R1 |
+| `bevaka` | Bullish trigger men R/R < 2 eller Risk-off; **eller** trend ≠ bearish, ingen bearish trigger och `close` inom 1 ATR under R1 (**rättelse 2026-10-22:** utan villkoret om bearish trigger visades ett stödbrott som bevaka när R1 låg nära) |
 | `sälj` | Bearish trigger ("sälj om du äger / undvik") |
 | `avvakta` | Övrigt |
 

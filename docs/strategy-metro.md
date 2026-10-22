@@ -34,7 +34,7 @@ T1 = R2, annars `R1 + (R1 − S1)`. T2 = R3, annars `R1 + 2 × (R1 − S1)`, och
 
 ## 4. Risk/reward
 
-Stop = `R1 − stop_atr × ATR_prev` (1,0). `R/R = (T1 − close) / (close − stop)`. Köp kräver `R/R ≥ min_rr` = 2. Positionsstorlek som breakouten (`risk_fraction`, `max_position_fraction`, `account_equity`), med T1 som mål.
+Stop = `R1 − stop_atr × ATR_prev` (1,0). Vid utlöst köpsignal: `R/R = (T1 − close) / (close − stop)`. Utan utlöst signal visas planerad R/R vid triggern: `(T1 − trigger) / (trigger − stop)`. Köp kräver `R/R ≥ min_rr` = 2. Positionsstorlek som breakouten (`risk_fraction`, `max_position_fraction`, `account_equity`), med T1 som mål.
 
 ## 5. Status
 
@@ -42,11 +42,11 @@ Stop = `R1 − stop_atr × ATR_prev` (1,0). `R/R = (T1 − close) / (close − s
 |---|---|
 | Filtrerad | Universum-, historik-, pris- eller likviditetsfilter, eller ATR saknas |
 | Köp | Bullish + R/R ≥ 2 + marknadsläge inte Risk-off |
-| Bevaka | Bullish men R/R < 2 eller Risk-off; eller trend inte bearish och close inom `watch_distance_atr` = 1 ATR under R1 |
+| Bevaka | Bullish men R/R < 2 eller Risk-off; eller trend inte bearish, inget brott under stöd och close inom `watch_distance_atr` = 1 ATR under R1 |
 | Sälj | Bearish: sälj om du äger, undvik annars. Ingen blankning |
 | Avvakta | Övrigt, och alltid när R1 eller S1 saknas |
 
-R/R visas även för Bevaka nära R1 och kan då bli mycket stort när kursen ligger nära stop. Det är information, inte en signal.
+Rättelse efter granskning 2026-10-22: tidigare kunde ett brott under stöd visas som Bevaka när R1 låg nära, och R/R för ej utlösta rader räknades från dagens stängning (upp till flera hundra nära stop). Båda är rättade enligt ovan.
 
 ## Nyheter och marknadsreaktion (visas, styr inte)
 

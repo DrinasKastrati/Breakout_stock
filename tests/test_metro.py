@@ -78,6 +78,19 @@ class MetroStatus(unittest.TestCase):
         self.assertIn("Stängning under stöd: sälj om du äger, undvik annars", r["reasons"])
         self.assertAlmostEqual(r["bear_t1"], r["s2"])
 
+    def test_support_break_is_sell_even_when_resistance_is_near(self):
+        bars = zigzag(UPTREND[:-2] + [(240, 88.5), (280, 89.5), (281, 88.0)], 282)
+        config = replace(CONFIG, metro=replace(CONFIG.metro, watch_distance_atr=7.0))
+        r = evaluate_metro(ASSET, bars, config, regime=NEUTRAL)
+        self.assertTrue(r["checks"]["bearish_trigger"])
+        self.assertGreaterEqual(r["close"], r["r1"] - 7.0 * r["atr"])
+        self.assertEqual(r["status"], "sell")
+
+    def test_untriggered_rr_is_planned_at_trigger(self):
+        r = evaluate_metro(ASSET, scenario(90.0), CONFIG, regime=NEUTRAL)
+        self.assertEqual(r["status"], "watch")
+        self.assertAlmostEqual(r["rr"], (r["t1"] - r["trigger"]) / (r["trigger"] - r["stop"]))
+
     def test_all_time_high_without_resistance_is_wait(self):
         bars = zigzag(UPTREND[:-1] + [(280, 95), (281, 96)], 282)
         r = evaluate_metro(ASSET, bars, CONFIG, regime=NEUTRAL)
