@@ -1,4 +1,4 @@
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, field, fields
 from datetime import date
 import math
 
@@ -36,6 +36,49 @@ class Asset:
 
 
 @dataclass(frozen=True)
+class MetroConfig:
+    pivot_span: int = 5
+    level_lookback: int = 250
+    cluster_atr: float = 0.5
+    trigger_atr_buffer: float = 0.1
+    stop_atr: float = 1.0
+    min_rr: float = 2.0
+    watch_distance_atr: float = 1.0
+    breadth_risk_on: float = 0.5
+    breadth_risk_off: float = 0.4
+    use_regime: bool = True
+    shortlist_size: int = 20
+    news_days: int = 3
+
+    @classmethod
+    def from_dict(cls, data):
+        if not isinstance(data, dict):
+            raise ValueError("metro must be an object")
+        known = {f.name for f in fields(cls)}
+        unknown = set(data) - known
+        if unknown:
+            raise ValueError(f"Unknown Metro settings: {', '.join(sorted(unknown))}")
+        c = cls(**data)
+        for f in fields(cls):
+            v = getattr(c, f.name)
+            if f.type in (bool, "bool"):
+                if type(v) is not bool:
+                    raise ValueError(f"metro.{f.name} must be boolean")
+            elif f.type in (int, "int"):
+                if type(v) is not int or v < 0:
+                    raise ValueError(f"metro.{f.name} must be a non-negative integer")
+            elif isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or v < 0:
+                raise ValueError(f"metro.{f.name} must be finite and non-negative")
+        if c.pivot_span < 1 or c.level_lookback <= 2 * c.pivot_span:
+            raise ValueError("metro.level_lookback must exceed two pivot spans")
+        if not 0 <= c.breadth_risk_off <= c.breadth_risk_on <= 1:
+            raise ValueError("Metro breadth thresholds must satisfy 0 <= risk_off <= risk_on <= 1")
+        if c.min_rr <= 0:
+            raise ValueError("metro.min_rr must be positive")
+        return c
+
+
+@dataclass(frozen=True)
 class Config:
     lookback: int = 20
     min_history: int = 250
@@ -59,6 +102,7 @@ class Config:
     slippage_bps: float = 10
     commission_per_share: float = 0.005
     max_holding_bars: int = 20
+    metro: MetroConfig = field(default_factory=MetroConfig)
 
     @classmethod
     def from_dict(cls, data):
@@ -72,6 +116,7 @@ class Config:
                 if not isinstance(values[key], (list, tuple)) or not all(isinstance(x, str) for x in values[key]):
                     raise ValueError(f"{key} must be a list of strings")
                 values[key] = tuple(values[key])
+        values["metro"] = MetroConfig.from_dict(values.get("metro", {}))
         c = cls(**values)
         ints = ("lookback", "min_history", "earnings_blackout_days", "max_holding_bars")
         bools = ("require_macd", "require_volume")
@@ -86,7 +131,7 @@ class Config:
             elif isinstance(v, (int, float)) and not isinstance(v, bool):
                 if not math.isfinite(v) or v < 0:
                     raise ValueError(f"{f.name} must be finite and non-negative")
-            elif f.name not in ("allowed_sectors", "excluded_symbols"):
+            elif f.name not in ("allowed_sectors", "excluded_symbols", "metro"):
                 raise ValueError(f"Invalid numeric setting: {f.name}")
         if c.lookback < 2 or c.min_history < max(60, c.lookback + 15) or c.max_holding_bars < 1:
             raise ValueError("Not enough indicator history or invalid holding period")

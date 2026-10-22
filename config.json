@@ -20,5 +20,19 @@
   "reward_risk": 2.0,
   "slippage_bps": 10.0,
   "commission_per_share": 0.005,
-  "max_holding_bars": 20
+  "max_holding_bars": 20,
+  "metro": {
+    "pivot_span": 5,
+    "level_lookback": 250,
+    "cluster_atr": 0.5,
+    "trigger_atr_buffer": 0.1,
+    "stop_atr": 1.0,
+    "min_rr": 2.0,
+    "watch_distance_atr": 1.0,
+    "breadth_risk_on": 0.5,
+    "breadth_risk_off": 0.4,
+    "use_regime": true,
+    "shortlist_size": 20,
+    "news_days": 3
+  }
 }
