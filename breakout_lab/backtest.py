@@ -3,9 +3,37 @@ from dataclasses import replace
 
 from .engine import evaluate, position_plan
 from .indicators import calculate
+from .metro import evaluate_metro
+from .metro_levels import find_pivots
+from .metro_regime import breadth_by_date, regime_series
+
+LIMITATIONS = ["Separata affärer per aktie; ingen portföljavkastning eller portföljdrawdown.",
+               "Nuvarande aktieuniversum kan ge överlevnadsbias.",
+               "Poäng och backtest är inte sannolikheter eller garantier."]
+METRO_LIMITATIONS = LIMITATIONS + [
+    "Affärer i olika aktier överlappar i tid; antalet affärer är inte antalet oberoende observationer.",
+    "Bredden räknas på dagens universum och bär överlevnadsbias bakåt.",
+    "Visning, inte bevis: fönstret flyttas dagligen och ses löpande."]
 
 
-def simulate_trade(bars, signal_index, candidate, config):
+def breakout_plan(entry, candidate, config):
+    stop = candidate["stop"]
+    if entry <= stop or entry > candidate["resistance"] + config.max_extension_atr * candidate["atr"]:
+        return None
+    plan = position_plan(entry, stop, config)
+    return {"shares": plan["shares"], "target": plan["target"]} if plan["shares"] >= 1 else None
+
+
+def metro_plan(entry, candidate, config):
+    stop, t1 = candidate["stop"], candidate["t1"]
+    # Re-check R/R at the simulated fill; a gap can destroy the planned reward.
+    if t1 is None or entry <= stop or (t1 - entry) / (entry - stop) < config.metro.min_rr:
+        return None
+    plan = position_plan(entry, stop, config)
+    return {"shares": plan["shares"], "target": t1} if plan["shares"] >= 1 else None
+
+
+def simulate_trade(bars, signal_index, candidate, config, plan=breakout_plan):
     entry_index = signal_index + 1
     if entry_index >= len(bars):
         return None
@@ -13,13 +41,10 @@ def simulate_trade(bars, signal_index, candidate, config):
     slip = config.slippage_bps / 10_000
     entry = entry_bar.open * (1 + slip)
     stop = candidate["stop"]
-    if entry <= stop or entry > candidate["resistance"] + config.max_extension_atr * candidate["atr"]:
+    sized = plan(entry, candidate, config)
+    if not sized:
         return None
-    plan = position_plan(entry, stop, config)
-    shares = plan["shares"]
-    if shares < 1:
-        return None
-    target = plan["target"]
+    shares, target = sized["shares"], sized["target"]
     last = min(entry_index + config.max_holding_bars - 1, len(bars) - 1)
     exit_price, exit_index, reason = None, last, "open"
     for j in range(entry_index, last + 1):
@@ -64,7 +89,8 @@ def summary(trades):
             "total_r": sum(rs)}
 
 
-def backtest(assets, histories, config, start=None, end=None):
+def backtest(assets, histories, config, start=None, end=None, *, evaluator=None, signal="breakout",
+             plan=breakout_plan, limitations=None):
     if config.earnings_blackout_days or config.min_market_cap or config.allowed_sectors:
         raise ValueError("Backtest requires point-in-time metadata for earnings, market cap and sectors. Disable these filters.")
     if start and end and start > end:
@@ -78,10 +104,10 @@ def backtest(assets, histories, config, start=None, end=None):
             if start and bars[i].date < start:
                 i += 1
                 continue
-            c = evaluate(asset, bars, config, i, ind, historical=True)
-            if c["status"] == "breakout":
+            c = evaluator(asset, bars, i, ind) if evaluator else evaluate(asset, bars, config, i, ind, historical=True)
+            if c["status"] == signal:
                 signals += 1
-                trade = simulate_trade(bars, i, c, config)
+                trade = simulate_trade(bars, i, c, config, plan)
                 if trade and trade["open"]:
                     open_trades += 1
                     break
@@ -94,12 +120,30 @@ def backtest(assets, histories, config, start=None, end=None):
     all_trades.sort(key=lambda t: (t["entry_date"], t["symbol"]))
     return {"summary": summary(all_trades), "signals": signals, "open_trades": open_trades,
             "trades": all_trades, "scope": "independent_trades",
-            "limitations": ["Separata affärer per aktie; ingen portföljavkastning eller portföljdrawdown.",
-                            "Nuvarande aktieuniversum kan ge överlevnadsbias.",
-                            "Poäng och backtest är inte sannolikheter eller garantier."]}
+            "limitations": list(limitations or LIMITATIONS)}
 
 
 def compare(assets, histories, config, start=None, end=None):
     variants = [("Pris", False, False), ("Pris + volym", True, False), ("Pris + volym + MACD", True, True)]
     return [{"name": name, **backtest(assets, histories, replace(config, require_volume=v, require_macd=m), start, end)}
             for name, v, m in variants]
+
+
+def compare_metro(assets, histories, config, start=None, end=None, benchmark_symbol="SPY"):
+    if config.earnings_blackout_days or config.min_market_cap or config.allowed_sectors:
+        raise ValueError("Backtest requires point-in-time metadata for earnings, market cap and sectors. Disable these filters.")
+    trimmed = {s: [b for b in bars if not end or b.date <= end] for s, bars in histories.items()}
+    indicators = {a.symbol: calculate(trimmed[a.symbol]) for a in assets if trimmed.get(a.symbol)}
+    breadth = breadth_by_date(assets, trimmed, config, indicators, historical=True)
+    pivots = {s: find_pivots(trimmed[s], config.metro.pivot_span) for s in indicators}
+    variants = []
+    for name, use_regime in (("Metro", True), ("Metro utan regimfilter", False)):
+        variant = replace(config, metro=replace(config.metro, use_regime=use_regime))
+        regimes = regime_series(trimmed.get(benchmark_symbol, []), breadth, variant.metro)
+
+        def evaluator(asset, bars, i, ind, variant=variant, regimes=regimes):
+            return evaluate_metro(asset, bars, variant, i, ind, pivots.get(asset.symbol), regimes.get(bars[i].date), historical=True)
+
+        variants.append({"name": name, **backtest(assets, trimmed, variant, start, end, evaluator=evaluator,
+                                                  signal="buy", plan=metro_plan, limitations=METRO_LIMITATIONS)})
+    return variants
