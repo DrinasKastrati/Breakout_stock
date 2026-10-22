@@ -1,5 +1,7 @@
 # Strategispecifikation v0.1
 
+Gäller breakoutstrategin. Metro beskrivs i [strategy-metro.md](strategy-metro.md).
+
 ## Tidsaxel
 
 `t` är en avslutad dagscandle. Signalen använder bara information som är tillgänglig senast vid denna candles slut. Historiska signaler använder aldrig framtida candles. `ATR_prev = ATR(14)[t-1]`.

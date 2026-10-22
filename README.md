@@ -2,7 +2,7 @@
 
 En körbar första version av en daglig breakoutscreener för amerikanska aktier. Systemet hittar kandidater, visar varför de kvalificerar sig och jämför strategier med och utan volym/MACD. Gränssnittet är på svenska.
 
-**Status: v0.2, statisk dashboard för GitHub Pages + lokalt forskningsverktyg.** Gratis GitHub Actions hämtar avslutade dagsdata, beräknar signaler och uppdaterar sidan. Alpaca Basic räcker för historisk SIP-data; inga betalabonnemang behövs för det implementerade upplägget. Inga köp- eller säljorder skickas.
+**Status: v0.3, statisk dashboard för GitHub Pages + lokalt forskningsverktyg.** Gratis GitHub Actions hämtar avslutade dagsdata, beräknar signaler och uppdaterar sidan. Alpaca Basic räcker för historisk SIP-data; inga betalabonnemang behövs för det implementerade upplägget. Inga köp- eller säljorder skickas.
 
 ## Starta via GitHub-hemsidan
 
@@ -119,6 +119,16 @@ python -m breakout_lab --db data/csv.sqlite serve
 ```
 
 Använd färdiga 1D-candles, konsekvent splitjustering och datum i New York-sessionens kalender. Dubbletter, ogiltiga OHLC-priser och icke-finita tal avvisas. SPY används som frivillig benchmark och blir ingen handelskandidat. Relativ styrka är informationsvärde, inte signalvillkor.
+
+## Två strategier: Breakout och Metro
+
+Reglaget högst upp på sidan växlar mellan **Breakout** och **Metro** (en tredje strategi är förberedd men inte byggd). Valet styr hela sidan och sparas i adressen (`#metro`). Grafen ritar bara den valda strategins nivåer; listan och chips ovanför grafen visar vad den andra strategin säger om samma aktie.
+
+**Metro** bygger stöd och motstånd ur bekräftade swing-pivåer, köper först vid stängning över triggern med minst 2:1 i risk/reward, och nedgraderar köp till Bevaka när marknadsläget är Risk-off (SPY under SMA 200 och färre än 40 % av aktierna över SMA 50). Planpanelen följer fem steg: makro & sentiment, nivåer, scenarier, risk/reward, slutsats. Regler: [docs/strategy-metro.md](docs/strategy-metro.md).
+
+För Metros kortlista visas Alpaca-nyheter med marknadens reaktion (minst ±2 % mot index och 1,5× volym). Reaktionen styr inte signalen. Om Alpaca Basic omfattar nyhets-API:t är inte verifierat; annars står "Nyheter ej tillgängliga". Marknadsberättelsen hämtas från Vecko_agents scout-rapport, och knappen "Djupanalys i Vecko_agent" köar en analys där. Inga betal-API:er används och inga nya hemligheter behövs.
+
+Kommandoraden: `python -m breakout_lab scan --strategy metro` och `python -m breakout_lab backtest --strategy metro`.
 
 ## Strategi och risk
 
