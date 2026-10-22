@@ -29,6 +29,26 @@ def universe_reasons(asset, config, as_of, historical=False):
     return reasons
 
 
+def eligibility(asset, bars, i, config, historical=False, require_history=True):
+    """Universe, history, price and liquidity gates shared by all strategies."""
+    b = bars[i]
+    reasons = universe_reasons(asset, config, b.date, historical)
+    if require_history:
+        if i + 1 < config.min_history:
+            reasons.append(f"Kräver {config.min_history} candles")
+    elif i < config.lookback:
+        reasons.append(f"Kräver {config.lookback} candles")
+    if b.close < config.min_price:
+        reasons.append("Kursen är under prisgränsen")
+    if reasons:
+        return reasons, None
+    window = bars[i-config.lookback:i]  # The signal bar MUST NOT define its own resistance.
+    avg_dv = sum(x.close*x.volume for x in window) / len(window)
+    if avg_dv < config.min_dollar_volume:
+        return ["För låg genomsnittlig dollaromsättning"], avg_dv
+    return [], avg_dv
+
+
 def position_plan(entry, stop, config):
     risk_per_share = entry - stop
     if risk_per_share <= 0 or entry <= 0:
@@ -47,19 +67,11 @@ def evaluate(asset, bars, config=Config(), index=None, indicators=None, benchmar
     result = {"symbol": asset.symbol, "name": asset.name, "sector": asset.sector,
               "date": b.date, "close": b.close, "status": "excluded", "score": 0,
               "reasons": [], "warnings": [], "checks": {}}
-    reasons = universe_reasons(asset, config, b.date, historical)
-    if i + 1 < config.min_history:
-        reasons.append(f"Kräver {config.min_history} candles")
-    if b.close < config.min_price:
-        reasons.append("Kursen är under prisgränsen")
+    reasons, avg_dv = eligibility(asset, bars, i, config, historical)
     if reasons:
         result["reasons"] = reasons
         return result
     window = bars[i-config.lookback:i]  # The signal bar MUST NOT define its own resistance.
-    avg_dv = sum(x.close*x.volume for x in window) / len(window)
-    if avg_dv < config.min_dollar_volume:
-        result["reasons"] = ["För låg genomsnittlig dollaromsättning"]
-        return result
     ind = indicators or calculate(bars[:i+1])
     atr = ind["atr"][i-1]
     if not atr or atr <= 0:
