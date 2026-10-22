@@ -24,6 +24,8 @@ beslut nedan är designerns val och får ifrågasättas.
 - Upplägg **B** för strategibyte (se §6): en strategi aktiv i taget i hela sidan, men listan och
   grafhuvudet visar vad de andra strategierna säger om samma aktie.
 - Sentimentbedömning per aktie ska finnas om den gynnar oss. Delar av Vecko_agent får återanvändas.
+- Inga API:er som kostar pengar. Sentiment = marknadens reaktion på nyheten + djupanalys på
+  begäran via Vecko_agent (§5.6).
 - Godkände spelplanen: marknadsläge mekaniskt; sentiment per aktie bara för kortlista och
   **påverkar inte signalen**; nivåer ur swing-pivåer; trigger vid stängning bortom nivå; R/R ≥ 2;
   "Sälj" = sälj om du äger / undvik, ingen blankning.
@@ -36,7 +38,8 @@ beslut nedan är designerns val och får ifrågasättas.
    struktur.
 3. Marknadsläge (Risk-on / Neutral / Risk-off) som mekanisk del av Metro. Backtestet visar
    variant med och utan regimfilter; själva bedömningen av filtret görs i protokolltestet (§5.5).
-4. Kontextpanel per aktie i kortlistan: färska nyheter och, om nyckel finns, en kort AI-bedömning.
+4. Kontextpanel per aktie i kortlistan: färska nyheter med marknadens reaktion, och knapp för
+   djupanalys i Vecko_agent.
 
 **Icke-mål**
 - Strategi 3.
@@ -162,16 +165,28 @@ Varje rad får mänskliga orsaker, som breakouten (`reasons`), t.ex. "R/R 1,6 un
   senaste 3 handelsdagarna, rubrik + sammanfattning. **Overifierat**: dokumentationen säger inte om
   nyhets-API:t ingår i Basic. Byggaren testar med ett anrop först. Fungerar det inte visas
   "Nyheter ej tillgängliga" och resten av bygget påverkas inte.
-- **AI-bedömning**: om Actions-secret `ANTHROPIC_API_KEY` finns, ett anrop per kortlisteaktie och
-  dag till en liten Claude-modell. Indata: rubriker och sammanfattningar, teknisk status och
-  marknadsläge. Utdata JSON: `sentiment` (positiv/neutral/negativ), `trap` (bool: ser ut som köp i
-  övertro eller sälj i panik), `motivering` (högst två meningar). Saknas nyckeln visas bara
-  rubrikerna. Fel i anropet får aldrig stoppa publiceringen.
-- **Varför det inte styr**: det finns inget mätt samband ännu. Alpacas nyhetsarkiv går tillbaka
-  till 2015, men en språkmodell som bedömer gamla nyheter kan känna till utfallet (läckage), så ett
-  historiskt test vore inte trovärdigt. I stället loggas varje dags bedömning per aktie
-  (krypterat, i sitesnapshoten och vidare till nästa) så att framåtriktad mätning blir möjlig.
-  Ingen tröskel för när sentiment får börja styra sätts nu.
+- **Ägarens beslut (2026-10-22): inga betal-API:er** (ingen Anthropic eller annan LLM-tjänst).
+  Sentiment per aktie = **marknadens reaktion på nyheten**, mekaniskt:
+  - Reaktionsdag för en artikel: den session vars stängning först kommer efter `created_at`
+    (New York-tid; publicerad före 16.00 en handelsdag → samma dag, annars nästa session). Ligger
+    reaktionsdagen efter `as_of` → "Reaktion okänd än".
+  - `excess` = aktiens dagsavkastning − indexets dagsavkastning samma dag. `rvol` = dagens volym /
+    snittvolym de 20 föregående sessionerna.
+  - **Positiv**: `excess ≥ +2 %` och `rvol ≥ 1.5`. **Negativ**: `excess ≤ −2 %` och `rvol ≥ 1.5`.
+    Annars **ingen tydlig reaktion**. Flera artiklar samma dag delar reaktionsdag.
+  - Sammanfattning per aktie: senaste reaktionsdag med tydlig reaktion, annars "ingen tydlig
+    reaktion". Ingen "fälla"-flagga i v1.
+  - Det mäter hur marknaden tog emot nyheten, inte textens ton. Det är gratis, körs i Actions och
+    kan senare backtestas mot Alpacas nyhetsarkiv (från 2015) utan språkmodellens läckageproblem.
+- **Djupanalys på begäran via Vecko_agent**: knapp "Djupanalys i Vecko_agent" per aktie som öppnar
+  `https://github.com/DrinasKastrati/Vecko_agent/issues/new` med titel `analys: TICKER` och samma
+  brödtext som Vecko_agents egen knapp ("Begäran om aktieanalys för TICKER. Skicka in ärendet så
+  köas det automatiskt."), plus länk till Vecko_agents dashboard. Analysen körs i Vecko_agents
+  befintliga, nyckellösa kö (Cowork). Breakout Lab läser inte tillbaka resultatet i v1.
+  Overifierat: flödet är läst ur Vecko_agents `CLAUDE.md` och `assets/app.js`, inte provkört härifrån.
+- **Varför reaktionen inte styr**: det finns inget mätt samband ännu. Varje dags reaktion per
+  kortlisteaktie loggas (krypterat, i sitesnapshoten och vidare till nästa) så att mätning blir
+  möjlig. Ingen tröskel för när den får börja styra sätts nu.
 - **Vecko_agent**: dess `state/news_feed.json` saknar tickerfält och har ~90 rubriker/dag för alla
   bolag, så den används inte per aktie. Dess dagliga scout-rapport
   (`reports/scout/rapport-yymmdd.md`, publikt repo) visas som **marknadsberättelse** i
@@ -195,7 +210,8 @@ Varje rad får mänskliga orsaker, som breakouten (`reasons`), t.ex. "R/R 1,6 un
   S2, R1 (trigger), R2, T1, T2, stop, med etiketter; nivåer utanför synligt prisintervall ritas
   inte. Ovanför grafen: chips med övriga strategiers status för vald aktie; klick byter strategi.
 - **Planpanel**: Metro visar de fem stegen i mallens ordning — Makro & sentiment (läge,
-  marknadsberättelse, nyheter/AI för kortlisteaktier), Nivåer, Scenarier, R/R, Slutsats.
+  marknadsberättelse, nyheter med marknadsreaktion för kortlisteaktier, knapp för djupanalys i
+  Vecko_agent), Nivåer, Scenarier, R/R, Slutsats.
 - **Backtest**: följer reglaget. Metro visar sina två varianter.
 - **Inställningar**: gemensamma (universum, risk, kostnader) och strategispecifika separat.
 
@@ -224,8 +240,7 @@ Varje rad får mänskliga orsaker, som breakouten (`reasons`), t.ex. "R/R 1,6 un
 - Exakt modulindelning, funktionsnamn och filnamn.
 - Prestanda för pivåer och bredd över ~6000 aktier × flera år.
 - Visuell detaljutformning inom §6, inklusive mobil.
-- Modell-id och prompttext för AI-bedömningen (läs `claude-api`-skillen före kod).
-- Hur sentimentloggen förs vidare mellan snapshots, inom kravet att den är krypterad.
+- Hur reaktionsloggen förs vidare mellan snapshots, inom kravet att den är krypterad.
 
 ## 9. Verifiering
 
@@ -234,6 +249,7 @@ Varje rad får mänskliga orsaker, som breakouten (`reasons`), t.ex. "R/R 1,6 un
 - Kausalitetstest för pivåer: att lägga till framtida candles ändrar inte nivåer eller status vid `t`.
 - Enhetstester för nivåkluster, trend, varje status, R/R-grind, regimens nedgradering och backtestets
   entry/exit.
-- Sentiment och nyheter: tester med mockade API-svar, inklusive fel och saknad nyckel.
+- Nyheter och reaktion: tester med mockade API-svar, inklusive fel; reaktionsdag före/efter 16.00
+  och efter `as_of`; trösklarna ±2 % och 1,5× exakt på gränsen.
 - Körning: `python -m breakout_lab demo` + `serve` visar båda strategierna; byte ändrar grafens
   linjer; `build-site --source demo` lyckas.

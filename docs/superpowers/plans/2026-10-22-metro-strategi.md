@@ -16,8 +16,8 @@
 - Nya Python-moduler ligger **platt** i `breakout_lab/`. `pages.static_hash` hashar bara `breakout_lab/*.py` och `static/*`; en underkatalog skulle göra att kodändringar inte tvingar ny publicering.
 - Inga nya pip-beroenden. HTTP via `urllib` som i `providers.py`.
 - Kausalitet: signal vid `t` använder bara data känd vid `t`:s stängning; pivå vid `j` är känd först vid `j + pivot_span`.
-- Alla riktiga data, nyheter och AI-utdata hamnar bara i krypterade payloads. Ingen nyckel, inget svarsinnehåll i felmeddelanden.
-- Extern text (scout-rapport, rubriker, AI-motivering) renderas med `textContent`, aldrig `innerHTML`.
+- Inga betal-API:er (ägarens beslut). Alla riktiga data och nyheter hamnar bara i krypterade payloads. Ingen nyckel, inget svarsinnehåll i felmeddelanden.
+- Extern text (scout-rapport, rubriker, sammanfattningar) renderas med `textContent`, aldrig `innerHTML`.
 - Statusnycklar Metro: `buy`, `watch`, `sell`, `wait`, `excluded`. Svenska etiketter: Köp, Bevaka, Sälj, Avvakta, Filtrerad.
 - Regimnycklar: `risk_on`, `neutral`, `risk_off`. Etiketter: Risk-on, Neutral, Risk-off.
 - Metro-parametrar (§5), förval: `pivot_span=5`, `level_lookback=250`, `cluster_atr=0.5`, `trigger_atr_buffer=0.1`, `stop_atr=1.0`, `min_rr=2.0`, `watch_distance_atr=1.0`, `breadth_risk_on=0.5`, `breadth_risk_off=0.4`, `use_regime=True`, `shortlist_size=20`, `news_days=3`.
@@ -29,8 +29,8 @@
 1. **Aktie på all time high** (ingen nivå över `close[t-1]`): ska bli `wait` med orsak "Motståndsnivå saknas", aldrig krasch eller köp. Test i Task 5.
 2. **Index saknas eller har < 200 candles** (kort `--years`, demo utan SPY): marknadsläge `neutral` med not "Indexhistorik saknas", ingen krasch. Test i Task 4.
 3. **`config.json` utan `metro`-block** (forskningsworkflows, äldre filer): förval används, forskningsmodulerna laddar som förut. Test i Task 2.
-4. **Nätverksfel, HTTP-fel eller trasig JSON från Alpaca News, GitHub raw eller Anthropic**: publiceringen fortsätter, panelen visar "ej tillgängligt". Tester i Task 8 och 9.
-5. **Extern text med HTML/script** (rubrik `<img onerror=…>`): visas som text. Test i Task 8 (Python trunkerar/behåller som sträng) och grep-kontroll i Task 11.
+4. **Nätverksfel, HTTP-fel eller trasig JSON från Alpaca News eller GitHub raw**: publiceringen fortsätter, panelen visar "ej tillgängligt". Tester i Task 9.
+5. **Extern text med HTML/script** (rubrik `<img onerror=…>`): visas som text. Test i Task 9 (Python behåller som sträng) och grep-kontroll i Task 11.
 
 ---
 
@@ -307,21 +307,61 @@ Följ befintliga hjälpare i `tests/test_pages.py` för att läsa demopayloads.
 
 ---
 
-### Task 8: Kontext — marknadsberättelse, nyheter, kortlista, logg
+### Task 8: Nyhetsreaktion (gratis sentiment)
+
+**Files:**
+- Create: `breakout_lab/reaction.py`
+- Test: `tests/test_reaction.py`
+
+**Interfaces:**
+- Produces: `reaction_day(created_at: str, sessions: list[str]) -> str | None` — `created_at` RFC-3339; omvandla till New York-tid; om datumet är en session i `sessions` och klockan är före 16:00 → det datumet, annars första session strikt efter datumet. Ingen sådan session (efter sista i listan) → `None`.
+- Produces: `day_reaction(bars: list[Bar], index_bars: dict[str, float], day: str) -> dict | None` — `{"day", "excess", "rvol", "label"}`; `excess = close[d]/close[d-1] - 1 - (index[d]/index[d-1] - 1)`; `rvol = volume[d] / medel(volume[d-20:d])`; `label`: `"positive"` om `excess >= 0.02` och `rvol >= 1.5`, `"negative"` om `excess <= -0.02` och `rvol >= 1.5`, annars `"none"`. Saknas dagen, föregående dag, indexvärde eller 20 föregående candles → `None`.
+- Produces: `symbol_reactions(articles: list[dict], bars: list[Bar], index_bars: dict[str, float]) -> dict` — `{"articles": [artikel + {"reaction_day", "reaction"}], "summary": {"label", "day", "excess", "rvol"} | {"label": "none"}}`; `reaction` = `day_reaction(...)` eller `None` (visas "Reaktion okänd än"); summary = senaste reaktionsdag med `label != "none"`, annars `{"label": "none"}`.
+- Trösklar (§5.6) som modulkonstanter: `EXCESS_THRESHOLD = 0.02`, `RVOL_THRESHOLD = 1.5`, `VOLUME_LOOKBACK = 20`. Inte i `config.json` — de är fastställda före data.
+
+- [ ] **Step 1: Failing tests**
+
+```python
+def test_before_close_is_same_session(self):
+    self.assertEqual(reaction_day("2026-10-20T14:00:00Z", ["2026-10-19", "2026-10-20", "2026-10-21"]), "2026-10-20")  # 10:00 NY
+def test_after_close_is_next_session(self):
+    self.assertEqual(reaction_day("2026-10-20T21:30:00Z", ["2026-10-20", "2026-10-21"]), "2026-10-21")                 # 17:30 NY
+def test_weekend_goes_to_next_session(self): ...          # lördag -> måndag
+def test_after_last_session_is_unknown(self):
+    self.assertIsNone(reaction_day("2026-10-21T21:30:00Z", ["2026-10-20", "2026-10-21"]))
+def test_thresholds_are_inclusive(self): ...              # excess exakt 0.02 och rvol exakt 1.5 -> "positive"
+def test_big_move_without_volume_is_none(self): ...       # excess 0.05, rvol 1.2 -> "none"
+def test_negative_reaction(self): ...
+def test_missing_history_returns_none(self): ...          # < 20 föregående candles
+def test_summary_uses_latest_clear_reaction(self): ...
+```
+
+Använd `assertAlmostEqual` för `excess`/`rvol`; konstruera gränsfallen med marginal 1e-9 på rätt sida om flyttal kräver det.
+
+- [ ] **Step 2:** Kör, FAIL.
+- [ ] **Step 3:** Implementera (`zoneinfo` som i `providers.py`).
+- [ ] **Step 4:** Kör nya + hela sviten.
+- [ ] **Step 5:** Commit `feat: classify market reaction to news without paid APIs`.
+
+---
+
+### Task 9: Kontext — marknadsberättelse, nyheter, kortlista, logg
 
 **Files:**
 - Create: `breakout_lab/context.py`
-- Modify: `breakout_lab/providers.py` (`Alpaca.news`), `breakout_lab/pages.py` (`build_site`), `.github/workflows/pages.yml` (ingen ändring här; se Task 9)
+- Modify: `breakout_lab/providers.py` (`Alpaca.news`), `breakout_lab/pages.py` (`build_site`)
 - Test: `tests/test_context.py`
 
 **Interfaces:**
+- Consumes: Task 8 (`symbol_reactions`), Task 7 (`export_site(context_builder=...)`).
 - Produces: `Alpaca.news(symbols: list[str], start: str, end: str) -> dict[str, list[dict]]` — `GET https://data.alpaca.markets/v1beta1/news` med `symbols`, `start`, `end`, `limit=50`, `sort=desc`, paginering med `page_token`, högst 5 sidor; artikel = `{"headline", "summary", "created_at", "source", "url"}`; varje artikel läggs under varje symbol i `symbols` som den nämner; högst 5 per symbol. Fel → `ValueError` utan svarsinnehåll (som `get`).
 - Produces: `shortlist(rows: list[dict], size: int) -> list[str]` — `buy` plus `watch` med `checks["trigger"]`, sorterade `rr` fallande, högst `size`.
 - Produces: `scout_narrative(as_of: str, opener=urlopen) -> dict | None` — prova `https://raw.githubusercontent.com/DrinasKastrati/Vecko_agent/main/reports/scout/rapport-{yymmdd}.md` för `as_of`+1, `as_of`, `as_of`−1, `as_of`−2, `as_of`−3 (nyast först; äldre än 3 kalenderdagar visas inte, §5.6); timeout 10 s per anrop; första träff vinner. Extrahera avsnittet från raden som börjar med `## Marknadsöversikt` till nästa rad som börjar med `## `; behåll texten oförändrad (markdown som ren text), trunkera till 4000 tecken. Returnera `{"date": "YYYY-MM-DD", "text": str, "url": str}`; saknat avsnitt eller allt fel → `None`.
-- Produces: `build_context(rows, as_of, metro, regime, news_client=None, opener=urlopen, previous_log=None, assessor=None) -> dict` (`regime` = dagens regim-dict, skickas till `assessor`) — `{"shortlist": [...], "narrative": dict|None, "news": {"available": bool, "note": str, "by_symbol": {...}}, "assessments": {symbol: dict}, "log": [...]}`. Nyheter för `news_days` handelsdagar ≈ `as_of − (news_days+2)` kalenderdagar. `news_client=None` → `available False`, note "Demodata har inga nyheter." eller "Nyheter ej tillgängliga". `assessor` = Task 9 (förval: inga bedömningar).
-- Produces: `merge_log(previous: list[dict], entries: list[dict], max_entries: int = 10000) -> list[dict]` — post `{"date", "symbol", "status", "rr", "sentiment", "trap"}`; nyckel `(date, symbol)`, nya ersätter gamla, sorterad på `(date, symbol)`, behåll de senaste `max_entries`.
-- `build_site` (alpaca): efter datahämtning, läs föregående scan via `decrypt_file` i ett eget try-block (oberoende av genvägen) för `strategies.metro.context.log`; fel → `[]` och not i `metadata["notes"]`: "Sentimentloggen startade om (föregående snapshot kunde inte läsas)." Skicka `context_builder=lambda rows, regime: build_context(rows, as_of, config.metro, regime, news_client=client, previous_log=log, assessor=...)` till `export_site`. Varje fel i kontextdelen fångas (Task 7); publiceringen fortsätter.
-- `build_site` (demo): `context_builder=lambda rows, regime: build_context(rows, as_of, config.metro, regime, news_client=None, opener=None)` → `opener=None` betyder inget nätanrop, narrativ `None`.
+- Produces: `build_context(rows, as_of, metro, histories, benchmark_symbol, news_client=None, opener=urlopen, previous_log=None) -> dict` — `{"shortlist": [...], "narrative": dict|None, "news": {"available": bool, "note": str, "by_symbol": {symbol: symbol_reactions(...)}}, "log": [...]}`. Nyheter från `as_of − (news_days + 2)` kalenderdagar till `as_of` (ungefär `news_days` handelsdagar). `news_client=None` → `available False`, note "Demodata har inga nyheter."; fel från `news_client` → `available False`, note "Nyheter ej tillgängliga". `opener=None` → narrativ `None` utan nätanrop.
+- Produces: `merge_log(previous: list[dict], entries: list[dict], max_entries: int = 10000) -> list[dict]` — post `{"date", "symbol", "status", "rr", "reaction", "excess", "rvol"}` (ur `summary`); nyckel `(date, symbol)`, nya ersätter gamla, sorterad på `(date, symbol)`, behåll de senaste `max_entries`.
+- `build_site` (alpaca): efter datahämtning, läs föregående scan via `decrypt_file` i ett eget try-block (oberoende av genvägen) för `strategies.metro.context.log`; fel → `[]` och not i `metadata["notes"]`: "Reaktionsloggen startade om (föregående snapshot kunde inte läsas)." Skicka `context_builder=lambda rows, regime: build_context(rows, as_of, config.metro, histories, "SPY", news_client=client, previous_log=log)` till `export_site`. Fel i kontextdelen fångas (Task 7); publiceringen fortsätter.
+- `build_site` (demo): `context_builder=lambda rows, regime: build_context(rows, as_of, config.metro, histories, metadata["benchmark_symbol"], news_client=None, opener=None)`.
+- `.github/workflows/pages.yml` ändras inte (inga nya secrets).
 
 - [ ] **Step 1: Failing tests** (inga riktiga nätanrop; `opener`-stubbar som i befintliga Alpaca-tester)
 
@@ -332,8 +372,9 @@ def test_narrative_none_when_all_fetches_fail(self): ...           # opener kast
 def test_narrative_too_old_is_ignored(self): ...                   # bara fil för as_of-4 finns -> None
 def test_news_http_error_marks_unavailable_and_does_not_raise(self): ...
 def test_news_keeps_markup_as_plain_string(self):
-    ctx = build_context(rows, as_of, MetroConfig(), NEUTRAL, news_client=stub_with_headline("<img src=x onerror=alert(1)>"), opener=failing_opener)
-    self.assertEqual(ctx["news"]["by_symbol"]["AAA"][0]["headline"], "<img src=x onerror=alert(1)>")
+    ctx = build_context(rows, as_of, MetroConfig(), histories, "IDX", news_client=stub_with_headline("<img src=x onerror=alert(1)>"), opener=None)
+    self.assertEqual(ctx["news"]["by_symbol"]["AAA"]["articles"][0]["headline"], "<img src=x onerror=alert(1)>")
+def test_only_shortlisted_symbols_are_requested(self): ...         # stubben registrerar symbols-argumentet
 def test_merge_log_dedupes_and_bounds(self): ...
 def test_export_survives_context_builder_failure(self): ...         # context_builder kastar -> export lyckas, strategies.metro.context is None
 ```
@@ -341,40 +382,8 @@ def test_export_survives_context_builder_failure(self): ...         # context_bu
 - [ ] **Step 2:** Kör, FAIL.
 - [ ] **Step 3:** Implementera.
 - [ ] **Step 4:** Kör nya + hela sviten.
-- [ ] **Step 5:** Commit `feat: add Metro context with scout narrative, news and sentiment log`.
-- [ ] **Step 6 (manuell, ägaren):** När nycklar finns lokalt: `PYTHONUTF8=1 python -c "from breakout_lab.providers import Alpaca; print(len(Alpaca().news(['AAPL'], '2026-10-15', '2026-10-21').get('AAPL', [])))"`. Ett tal ≥ 0 utan fel betyder att nyhets-API:t ingår i planen. HTTP 403 betyder att det inte gör det — då står "Nyheter ej tillgängliga" och inget annat behöver ändras. Rapportera utfallet i overlämningen; påstå inte att det fungerar utan körningen.
-
----
-
-### Task 9: AI-bedömning per kortlisteaktie
-
-**Files:**
-- Create: `breakout_lab/sentiment.py`
-- Modify: `breakout_lab/pages.py` (skicka `assessor` till `build_context` när nyckel finns), `.github/workflows/pages.yml` (env `ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}` i steget "Fetch and build personal analysis")
-- Test: `tests/test_sentiment.py`
-
-**Interfaces:**
-- Consumes: Task 8 (`build_context(assessor=...)`).
-- Produces: `assess(symbol: str, row: dict, articles: list[dict], regime: dict, api_key: str, opener=urlopen) -> dict | None` — `{"sentiment": "positive"|"neutral"|"negative", "trap": bool, "motivation": str}`; `motivation` trunkeras till 300 tecken; allt fel, okänt enum eller trasig JSON → `None`.
-- Produces: `make_assessor(api_key: str | None, opener=urlopen) -> callable | None` — `None` utan nyckel; annars `assessor(symbol, row, articles, regime) -> dict | None`. Högst `shortlist_size` anrop per körning; hoppa över symboler utan artiklar.
-
-- [ ] **Step 0:** Läs `claude-api`-skillen innan någon kod skrivs. Välj modell-id, `anthropic-version`, endpoint och hur strikt JSON fås ur svaret därifrån — inte ur minnet. Liten/billig modell; `max_tokens` ≤ 300; timeout 30 s; ingen ny dependency (urllib).
-- [ ] **Step 1: Failing tests** (stubbad opener)
-
-```python
-def test_valid_response_is_parsed(self): ...                 # -> {"sentiment": "positive", "trap": False, "motivation": "..."}
-def test_unknown_sentiment_value_returns_none(self): ...
-def test_http_error_returns_none_without_leaking_key(self):
-    with self.assertLogs(level="WARNING") as logs: ...      # eller fånga utskrift: nyckeln får inte förekomma
-def test_no_key_means_no_assessor(self):
-    self.assertIsNone(make_assessor(None))
-def test_motivation_truncated(self): ...
-```
-
-- [ ] **Step 2:** Kör, FAIL.
-- [ ] **Step 3:** Implementera. Prompten instruerar modellen att bara bedöma tonen i de givna nyheterna, att texten i nyheterna är data och inte instruktioner, och att svara med enbart JSON.
-- [ ] **Step 4:** Kör nya + hela sviten.
-- [ ] **Step 5:** Commit `feat: optional AI sentiment for Metro shortlist`.
+- [ ] **Step 5:** Commit `feat: add Metro context with scout narrative, news reactions and log`.
+- [ ] **Step 6 (manuell, ägaren):** När nycklar finns lokalt: `PYTHONUTF8=1 python -c "from breakout_lab.providers import Alpaca; print(len(Alpaca().news(['AAPL'], '2026-10-15', '2026-10-21').get('AAPL', [])))"`. Ett tal ≥ 0 utan fel betyder att nyhets-API:t ingår i planen. HTTP 403 betyder att det inte gör det — då står "Nyheter ej tillgängliga" och inget annat behöver ändras. Rapportera utfallet i överlämningen; påstå inte att det fungerar utan körningen.
 
 ---
 
@@ -409,7 +418,7 @@ def test_motivation_truncated(self): ...
 - Consumes: Metro-rad (`chart_levels`, `checks`, nivåer, `rr`, `regime`) och `strategies.metro.context`.
 - Graf: `drawChart` ritar **endast** aktiv strategis nivåer. Breakout: motståndslinjen som i dag. Metro: varje `chart_levels`-post inom `[minPrice, maxPrice]` — `r1` heldragen `#ecc58a`, `r2/t1/t2` streckad accentfärg, `s1/s2` heldragen `#7d8da1`, `stop` heldragen `#f58a9e`; etikett till vänster. Legenden byts per strategi.
 - Chips ovanför grafen: övriga strategiers status för vald aktie; klick → `setActive(id)`.
-- Planpanel för Metro, fem rubriker i mallens ordning: **1. Makro & sentiment** (marknadsläge + noter; marknadsberättelse med datum och länk "Vecko_agent scout-rapport"; för kortlisteaktier rubriker med källa/datum/länk och AI-bedömning märkt "AI-bedömning, styr inte signalen"; annars "Inte i kortlistan"), **2. Nivåer** (S2, S1, R1, R2, trend), **3. Scenarier** (bullish: trigger → T1/T2; bearish: under S1 − buffert → S2; sidledes: avvakta), **4. Risk/Reward** (entryreferens, stop, T1, R/R, antal aktier, planerad risk), **5. Slutsats** (status + orsaker + påminnelse om positionsstorlek i förhållande till total portföljrisk).
+- Planpanel för Metro, fem rubriker i mallens ordning: **1. Makro & sentiment** (marknadsläge + noter; marknadsberättelse med datum och länk "Vecko_agent scout-rapport"; för kortlisteaktier rubriker med källa/datum/länk och reaktion per artikel ("Positivt mottagen +3,1 % mot index, 2,4× volym" / "Negativt mottagen …" / "Ingen tydlig reaktion" / "Reaktion okänd än") samt sammanfattning märkt "Marknadsreaktion, styr inte signalen"; annars "Inte i kortlistan"; för **alla** aktier knappen "Djupanalys i Vecko_agent" som i ny flik öppnar `https://github.com/DrinasKastrati/Vecko_agent/issues/new?title=` + `encodeURIComponent("analys: " + symbol)` + `&body=` + `encodeURIComponent("Begäran om aktieanalys för " + symbol + ". Skicka in ärendet så köas det automatiskt.")`, plus länken "Visa analyser" till `https://drinaskastrati.github.io/Vecko_agent/`), **2. Nivåer** (S2, S1, R1, R2, trend), **3. Scenarier** (bullish: trigger → T1/T2; bearish: under S1 − buffert → S2; sidledes: avvakta), **4. Risk/Reward** (entryreferens, stop, T1, R/R, antal aktier, planerad risk), **5. Slutsats** (status + orsaker + påminnelse om positionsstorlek i förhållande till total portföljrisk).
 - All extern text via `el(tag, text)` / `textContent`. Länkar: `href` bara om URL börjar med `https://`; `rel="noopener noreferrer"`, `target="_blank"`.
 
 - [ ] **Step 1:** Implementera.
@@ -443,7 +452,7 @@ def test_motivation_truncated(self): ...
 
 **Files:**
 - Create: `docs/strategy-metro.md` (regelspecifikation i samma stil som `docs/strategy.md`, med exakta förval)
-- Modify: `README.md` (avsnitt om strategibyte, Metro, marknadsläge, valfri `ANTHROPIC_API_KEY`, overifierad nyhetstillgång i Basic), `docs/strategy.md` (en rad som hänvisar till `strategy-metro.md`)
+- Modify: `README.md` (avsnitt om strategibyte, Metro, marknadsläge, nyhetsreaktion och Vecko_agent-knappen, overifierad nyhetstillgång i Basic), `docs/strategy.md` (en rad som hänvisar till `strategy-metro.md`)
 
 - [ ] **Step 1:** Skriv dokumenten. Siffror och texter ska stämma med koden — kontrollera mot `MetroConfig` och orsakstexterna i `metro.py`.
 - [ ] **Step 2:** Kör hela sviten: förväntat alla gröna utom de 2 kända Windows-felen; ange exakt utdata i överlämningen.
